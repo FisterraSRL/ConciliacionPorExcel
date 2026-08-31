@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server';
 
 const transiciones: Record<string, { estadoOrigen: string; estadoDestino: string }> = {
-  CHDIF: { estadoOrigen: 'Emitido', estadoDestino: 'Diferido' },
+  CHDIF: { estadoOrigen: 'Diferido', estadoDestino: 'Conciliado' },
   COBCHTERENCU: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Conciliado' },
   RECHCHTERCERO: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Rechazado' },
   DEPREALIZADO: { estadoOrigen: 'En Cartera', estadoDestino: 'Cheque Depositado' },
