@@ -28,7 +28,10 @@ export async function GET() {
   try {
     const token = await requestToken();
     const reportBaseUrl = (process.env.FINNEGANS_REPORT_BASE_URL ?? 'https://api.finneg.com/api').replace(/\/$/, '');
-    const params = new URLSearchParams({ ACCESS_TOKEN: token });
+    const params = new URLSearchParams({
+      '[updatedSince]': '1900-01-01',
+      ACCESS_TOKEN: token,
+    });
     let response: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       response = await fetch(`${reportBaseUrl}/cuenta/list?${params}`, { cache: 'no-store' });
