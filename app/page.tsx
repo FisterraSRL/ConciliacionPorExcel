@@ -102,6 +102,7 @@ export default function Home() {
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
       setMatchResults(body.results);
+      setSelectedRows(new Set<number>(body.results.filter((item: MatchResult) => item.matched).map((item: MatchResult) => item.index)));
       setApiStatus('ready');
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'No se pudo conciliar con Finnegans.');
