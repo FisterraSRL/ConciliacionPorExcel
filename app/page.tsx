@@ -7,6 +7,10 @@ type Row = Record<string, Cell>;
 type MatchResult = { index: number; matched: boolean; cheque: { estado?: unknown; banco?: unknown; empresa?: unknown; documento?: unknown; fechaVencimiento?: unknown } | null };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
 
+function todayInBuenosAires() {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+}
+
 function formatMoney(value: Cell) {
   const amount = typeof value === 'number' ? value : Number(String(value ?? '').replace(/[^0-9,.-]/g, '').replace(',', '.'));
   return Number.isFinite(amount) ? new Intl.NumberFormat('es-AR', { style: 'currency', currency: 'ARS', minimumFractionDigits: 2 }).format(amount) : String(value ?? '—');
@@ -33,22 +37,27 @@ export default function Home() {
   const [apiCount, setApiCount] = useState(0);
   const [matchResults, setMatchResults] = useState<MatchResult[]>([]);
   const [matching, setMatching] = useState(false);
+  const [fechaHasta, setFechaHasta] = useState(todayInBuenosAires);
+  const [tipoCheque, setTipoCheque] = useState('0');
 
   useEffect(() => {
     let active = true;
-    fetch('/api/situacion-cheques')
+    setApiStatus('loading');
+    const params = new URLSearchParams({ fechaHasta, tipoCheque });
+    fetch(`/api/situacion-cheques?${params}`)
       .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => { if (active) { setApiCount(body.count); setApiStatus('ready'); } })
       .catch(() => { if (active) setApiStatus('error'); });
+    if (rows.length) void reconcile(rows, fechaHasta, tipoCheque);
     return () => { active = false; };
-  }, []);
+  }, [fechaHasta, tipoCheque]);
 
-  async function reconcile(parsedRows: Row[]) {
+  async function reconcile(parsedRows: Row[], selectedDate = fechaHasta, selectedType = tipoCheque) {
     setMatching(true); setMatchResults([]);
     try {
       const response = await fetch('/api/situacion-cheques', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
+        body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
@@ -104,6 +113,14 @@ export default function Home() {
 
       <div className="mx-auto max-w-[1500px] px-5 py-8 lg:px-10">
         <div className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between"><div><p className="mb-2 text-sm font-semibold text-[#3985ff]">Conciliación de cheques</p><h2 className="text-3xl font-semibold tracking-[-.025em] text-[#04102d]">Importar movimientos</h2><p className="mt-2 max-w-2xl text-sm leading-6 text-[#49505b]">Cargá el archivo generado para compararlo con la Situación de Cheques de Finnegans.</p></div><div className={`rounded-lg border px-3 py-2 text-xs font-semibold ${apiStatus === 'ready' ? 'border-[#b8e8d5] bg-[#ebfcf7] text-[#006b33]' : apiStatus === 'error' ? 'border-[#efc7c3] bg-[#feeff0] text-[#a83c34]' : 'border-[#dcdffc] bg-[#f0effa] text-[#1529a0]'}`}>{apiStatus === 'ready' ? `Finnegans listo · ${apiCount.toLocaleString('es-AR')} cheques` : apiStatus === 'error' ? 'Finnegans no disponible' : 'Consultando Finnegans…'}</div></div>
+
+        <section className="mb-5 rounded-2xl border border-[#e1e2e4] bg-white p-5 shadow-[0_8px_28px_rgba(31,52,69,.05)]">
+          <div className="mb-4"><h3 className="font-semibold text-[#04102d]">Filtros de Finnegans</h3><p className="mt-1 text-xs text-[#898e95]">Definen qué cheques se consultan y se comparan con el archivo.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2 lg:max-w-2xl">
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => setFechaHasta(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Tipo de cheque</span><select value={tipoCheque} onChange={(event) => setTipoCheque(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"><option value="0">Propio</option><option value="1">Tercero</option></select></label>
+          </div>
+        </section>
 
         {!rows.length ? <section className="rounded-2xl border border-[#dfe4e8] bg-white p-4 shadow-[0_8px_28px_rgba(31,52,69,.06)] sm:p-7">
           <div className={`grid min-h-[330px] place-items-center rounded-xl border-2 border-dashed p-8 text-center transition ${dragging ? 'border-[#3985ff] bg-[#eef5ff]' : 'border-[#cdcfd2] bg-[#f8f8f9]'}`} onDragEnter={(e) => { e.preventDefault(); setDragging(true); }} onDragOver={(e) => e.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={onDrop}>

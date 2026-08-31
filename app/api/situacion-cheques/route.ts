@@ -3,8 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 type ApiCheque = Record<string, unknown>;
 type ExcelRow = { referencia: unknown; importe: unknown; index: number };
 
-let chequePromise: Promise<ApiCheque[]> | null = null;
-let loadedAt = 0;
+const chequeCache = new Map<string, { promise: Promise<ApiCheque[]>; loadedAt: number }>();
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
 function requiredEnv(name: string) {
@@ -57,14 +56,25 @@ async function requestToken() {
   return (await response.text()).trim();
 }
 
-async function loadCheques() {
-  if (chequePromise && Date.now() - loadedAt < CACHE_TTL_MS) return chequePromise;
-  chequePromise = (async () => {
+function validateFilters(fechaHasta: unknown, tipoCheque: unknown) {
+  const date = String(fechaHasta || todayInBuenosAires());
+  const type = String(tipoCheque ?? '0');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('La fecha hasta no es válida.');
+  if (type !== '0' && type !== '1') throw new Error('El tipo de cheque no es válido.');
+  return { fechaHasta: date, tipoCheque: type };
+}
+
+async function loadCheques(fechaHasta: string, tipoCheque: string) {
+  const key = `${fechaHasta}|${tipoCheque}`;
+  const cached = chequeCache.get(key);
+  if (cached && (cached.loadedAt === 0 || Date.now() - cached.loadedAt < CACHE_TTL_MS)) return cached.promise;
+  const entry = { loadedAt: 0, promise: Promise.resolve([] as ApiCheque[]) };
+  entry.promise = (async () => {
     const token = await requestToken();
     const params = new URLSearchParams({
       ACCESS_TOKEN: token,
-      PARAMWEBREPORT_FechaHasta: todayInBuenosAires(),
-      PARAMWEBREPORT_TipoCheque: '0',
+      PARAMWEBREPORT_FechaHasta: fechaHasta,
+      PARAMWEBREPORT_TipoCheque: tipoCheque,
       PARAMWEBREPORT_Estado: 'Emitido',
       PARAMWEBREPORT_Organizacion: '',
       PARAMWEBREPORT_CircuitoContable: '',
@@ -80,16 +90,19 @@ async function loadCheques() {
     const result = await response.json();
     const rows = Array.isArray(result) ? result : result?.data ?? result?.rows;
     if (!Array.isArray(rows)) throw new Error('La API devolvió un formato inesperado.');
-    loadedAt = Date.now();
+    entry.loadedAt = Date.now();
     return rows as ApiCheque[];
-  })().catch((error) => { chequePromise = null; throw error; });
-  return chequePromise;
+  })().catch((error) => { chequeCache.delete(key); throw error; });
+  chequeCache.set(key, entry);
+  return entry.promise;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const cheques = await loadCheques();
-    return NextResponse.json({ ready: true, count: cheques.length, loadedAt: new Date(loadedAt).toISOString() });
+    const filters = validateFilters(request.nextUrl.searchParams.get('fechaHasta'), request.nextUrl.searchParams.get('tipoCheque'));
+    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque);
+    const cached = chequeCache.get(`${filters.fechaHasta}|${filters.tipoCheque}`);
+    return NextResponse.json({ ready: true, count: cheques.length, loadedAt: new Date(cached?.loadedAt ?? Date.now()).toISOString(), filters });
   } catch (error) {
     return NextResponse.json({ ready: false, error: error instanceof Error ? error.message : 'Error al consultar Finnegans.' }, { status: 502 });
   }
@@ -97,9 +110,10 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { rows?: ExcelRow[] };
+    const body = await request.json() as { rows?: ExcelRow[]; fechaHasta?: string; tipoCheque?: string };
     if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'No se recibieron registros.' }, { status: 400 });
-    const cheques = await loadCheques();
+    const filters = validateFilters(body.fechaHasta, body.tipoCheque);
+    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque);
     const index = new Map<string, ApiCheque>();
     for (const cheque of cheques) {
       const key = matchKey(cheque.NUMERO, cheque.IMPORTEMONTRANSACCION);
@@ -122,7 +136,7 @@ export async function POST(request: NextRequest) {
         } : null,
       };
     });
-    return NextResponse.json({ results, matched: results.filter((item) => item.matched).length, total: results.length });
+    return NextResponse.json({ results, matched: results.filter((item) => item.matched).length, total: results.length, filters });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Error al conciliar los registros.' }, { status: 502 });
   }
