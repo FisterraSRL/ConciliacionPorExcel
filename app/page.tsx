@@ -183,34 +183,32 @@ export default function Home() {
     const selectedOperation = operacionesBancarias.find((item) => item.codigo === operacionBancaria);
     if (!selectedOperation) { setMovementMessage('Seleccioná una operación bancaria.'); return; }
     setMovementLoading(true);
-    let operation: OperacionBancaria;
     try {
       const response = await fetch(`/api/operaciones-bancarias?codigo=${encodeURIComponent(selectedOperation.codigo)}`, { cache: 'no-store' });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
-      operation = body.operacion;
+      const operation: OperacionBancaria = body.operacion;
       setOperacionesBancarias((current) => current.map((item) => item.codigo === operation.codigo ? operation : item));
+      if (!operation.estadoOrigen || !operation.estadoDestino) { setMovementMessage(`La operación “${operation.nombre}” no tiene estados origen y destino configurados en Finnegans.`); return; }
+      const selectedState = estadosBancarios.find((item) => item.codigo === estadoBancario);
+      const normalizedSelectedState = (selectedState?.nombre ?? estadoBancario).trim().toLocaleLowerCase('es');
+      if (normalizedSelectedState !== operation.estadoOrigen.toLocaleLowerCase('es')) { setMovementMessage(`La operación “${operation.nombre}” requiere el estado origen “${operation.estadoOrigen}”, pero el filtro seleccionado es “${selectedState?.nombre ?? estadoBancario}”.`); return; }
+      const destination = cuentasDestino.find((item) => item.codigo === cuentaDestino);
+      if (!destination) { setMovementMessage('Seleccioná una cuenta destino.'); return; }
+      const documents = selectedMatches.map((item) => ({
+        documentoFisicoId: String(item.cheque?.documentoFisicoId ?? ''),
+        referencia: String(rows[item.index]?.Referencia ?? ''),
+        importe: rows[item.index]?.Importe ?? null,
+        cuentaOrigen: String(item.cheque?.cuenta ?? ''),
+      }));
+      if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); return; }
+      if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); return; }
+      setAsientoPreview({ operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos: documents });
     } catch (cause) {
-      setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo consultar la definición de la operación bancaria.');
+      setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear la vista previa del movimiento.');
+    } finally {
       setMovementLoading(false);
-      return;
     }
-    if (!operation.estadoOrigen || !operation.estadoDestino) { setMovementMessage(`La operación “${operation.nombre}” no tiene estados origen y destino configurados en Finnegans.`); setMovementLoading(false); return; }
-    const selectedState = estadosBancarios.find((item) => item.codigo === estadoBancario);
-    const normalizedSelectedState = (selectedState?.nombre ?? estadoBancario).trim().toLocaleLowerCase('es');
-    if (normalizedSelectedState !== operation.estadoOrigen.toLocaleLowerCase('es')) { setMovementMessage(`La operación “${operation.nombre}” requiere el estado origen “${operation.estadoOrigen}”, pero el filtro seleccionado es “${selectedState?.nombre ?? estadoBancario}”.`); setMovementLoading(false); return; }
-    const destination = cuentasDestino.find((item) => item.codigo === cuentaDestino);
-    if (!destination) { setMovementMessage('Seleccioná una cuenta destino.'); setMovementLoading(false); return; }
-    const documents = selectedMatches.map((item) => ({
-      documentoFisicoId: String(item.cheque?.documentoFisicoId ?? ''),
-      referencia: String(rows[item.index]?.Referencia ?? ''),
-      importe: rows[item.index]?.Importe ?? null,
-      cuentaOrigen: String(item.cheque?.cuenta ?? ''),
-    }));
-    if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
-    if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
-    setAsientoPreview({ operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos: documents });
-    setMovementLoading(false);
   }
 
   return (
