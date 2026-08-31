@@ -9,7 +9,7 @@ type EstadoBancario = { codigo: string; nombre: string };
 type OperacionBancaria = { codigo: string; nombre: string; estadoOrigen: string | null; estadoDestino: string | null };
 type CuentaDestino = { codigo: string; nombre: string };
 type EmpresaSucursal = { codigo: string; nombre: string };
-type AsientoPreview = { tipoDocumento: string; operacion: string; estadoOrigen: string; estadoDestino: string; cuentaDestino: string; documentos: Array<{ documentoFisicoId: string; referencia: string; importe: Cell; cuentaOrigen: string }> };
+type AsientoPreview = { tipoDocumento: string; operacion: string; operacionId: string; empresaId: string; estadoOrigen: string; estadoDestino: string; cuentaDestino: string; cuentaDestinoId: string; documentos: Array<{ documentoFisicoId: string; referencia: string; importe: Cell; cuentaOrigen: string; fechaVencimiento: string | null }> };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
 
 function todayInBuenosAires() {
@@ -59,6 +59,8 @@ export default function Home() {
   const [movementMessage, setMovementMessage] = useState('');
   const [asientoPreview, setAsientoPreview] = useState<AsientoPreview | null>(null);
   const [movementLoading, setMovementLoading] = useState(false);
+  const [movementSending, setMovementSending] = useState(false);
+  const [movementSuccess, setMovementSuccess] = useState('');
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
@@ -177,6 +179,7 @@ export default function Home() {
 
   async function createMovementPreview() {
     setMovementMessage('');
+    setMovementSuccess('');
     setAsientoPreview(null);
     if (!selectedRows.size) { setMovementMessage('No hay registros seleccionados.'); return; }
     const selectedMatches = matchResults.filter((item) => selectedRows.has(item.index) && item.matched && item.cheque);
@@ -184,6 +187,7 @@ export default function Home() {
     const selectedOperation = operacionesBancarias.find((item) => item.codigo === operacionBancaria);
     if (!selectedOperation) { setMovementMessage('Seleccioná una operación bancaria.'); return; }
     if (!tipoDocumento.trim()) { setMovementMessage('Ingresá el código del tipo de documento.'); return; }
+    if (!empresa) { setMovementMessage('Seleccioná una empresa / sucursal antes de crear el movimiento.'); return; }
     setMovementLoading(true);
     try {
       const response = await fetch(`/api/operaciones-bancarias?codigo=${encodeURIComponent(selectedOperation.codigo)}`, { cache: 'no-store' });
@@ -202,15 +206,34 @@ export default function Home() {
         referencia: String(rows[item.index]?.Referencia ?? ''),
         importe: rows[item.index]?.Importe ?? null,
         cuentaOrigen: String(item.cheque?.cuenta ?? ''),
+        fechaVencimiento: item.cheque?.fechaVencimiento ? String(item.cheque.fechaVencimiento) : null,
       }));
       if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); return; }
       if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); return; }
-      setAsientoPreview({ tipoDocumento: tipoDocumento.trim(), operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos: documents });
+      setAsientoPreview({ tipoDocumento: tipoDocumento.trim(), operacion: operation.nombre, operacionId: operation.codigo, empresaId: empresa, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, cuentaDestinoId: destination.codigo, documentos: documents });
     } catch (cause) {
       setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear la vista previa del movimiento.');
     } finally {
       setMovementLoading(false);
     }
+  }
+
+  async function submitMovement() {
+    if (!asientoPreview || movementSending) return;
+    if (!window.confirm(`Se creará un movimiento ${asientoPreview.tipoDocumento} con ${asientoPreview.documentos.length} documentos en Finnegans. ¿Confirmar?`)) return;
+    setMovementSending(true); setMovementMessage(''); setMovementSuccess('');
+    try {
+      const response = await fetch('/api/movimientos-fondos', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...asientoPreview, fecha: todayInBuenosAires(), descripcion: `${asientoPreview.operacion} - Conciliación Excel`, documentos: asientoPreview.documentos }),
+      });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      const transactionId = body.result?.TransaccionID ?? body.result?.transaccionID ?? body.result?.id;
+      setMovementSuccess(transactionId ? `Movimiento creado correctamente. Transacción: ${transactionId}.` : 'Movimiento creado correctamente en Finnegans.');
+    } catch (cause) {
+      setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear el movimiento en Finnegans.');
+    } finally { setMovementSending(false); }
   }
 
   return (
@@ -252,7 +275,7 @@ export default function Home() {
           <section className="overflow-hidden rounded-2xl border border-[#dce3e8] bg-white shadow-[0_8px_28px_rgba(31,52,69,.06)]">
             <div className="flex flex-col gap-3 border-b border-[#e1e2e4] px-5 py-4 sm:flex-row sm:items-center sm:justify-between"><div><h3 className="font-semibold text-[#04102d]">Detalle importado</h3><p className="mt-0.5 text-xs text-[#898e95]">{filteredRows.length} de {rows.length} registros · {selectedRows.size} seleccionados</p></div><div className="flex gap-2"><label className="relative flex-1 sm:w-72"><span className="sr-only">Buscar en los registros</span><span className="absolute left-3 top-2.5 text-sm text-[#898e95]">⌕</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Buscar descripción o referencia" className="w-full rounded-lg border border-[#cdcfd2] py-2 pl-9 pr-3 text-sm outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label><button onClick={clearImport} className="whitespace-nowrap rounded-lg border border-[#cdcfd2] px-4 py-2 text-sm font-semibold text-[#49505b] transition hover:border-[#3985ff] hover:bg-[#eef5ff] hover:text-[#1529a0]">Cambiar archivo</button></div></div>
             <div className="overflow-x-auto"><table className="w-full min-w-[1200px] border-collapse text-sm"><thead><tr className="bg-[#f0effa] text-left text-[11px] uppercase tracking-wider text-[#49505b]"><th className="w-12 border-b border-[#dcdffc] px-5 py-3"><input type="checkbox" aria-label="Seleccionar todos los registros visibles" checked={filteredRows.length > 0 && filteredRows.every((row) => selectedRows.has(rows.indexOf(row)))} onChange={toggleVisibleRows} className="h-4 w-4 accent-[#3985ff]"/></th>{columns.map((column) => <th key={column} className={`border-b border-[#dcdffc] px-5 py-3 font-semibold ${column === 'Importe' ? 'text-right' : ''}`}>{column}</th>)}<th className="border-b border-[#dcdffc] px-5 py-3 font-semibold">Situación</th><th className="border-b border-[#dcdffc] px-5 py-3 font-semibold">DOCUMENTOFISICOID</th><th className="border-b border-[#dcdffc] px-5 py-3 font-semibold">Cuenta</th><th className="border-b border-[#dcdffc] px-5 py-3 font-semibold">Banco / documento</th></tr></thead><tbody>{filteredRows.map((row) => { const originalIndex = rows.indexOf(row); const result = matchResults.find((item) => item.index === originalIndex); return <tr key={`${String(row.Referencia)}-${originalIndex}`} className={`border-b border-[#eff0f1] last:border-0 hover:bg-[#eef5ff] ${selectedRows.has(originalIndex) ? 'bg-[#eef5ff]' : ''}`}><td className="px-5 py-3.5"><input type="checkbox" aria-label={`Seleccionar referencia ${String(row.Referencia)}`} checked={selectedRows.has(originalIndex)} onChange={() => toggleRow(originalIndex)} className="h-4 w-4 accent-[#3985ff]"/></td>{columns.map((column) => <td key={column} className={`whitespace-nowrap px-5 py-3.5 ${column === 'Importe' ? 'text-right font-medium tabular-nums text-[#1529a0]' : column === 'Referencia' ? 'font-mono text-xs text-[#0847ae]' : 'text-[#49505b]'}`}>{displayValue(row[column], column)}</td>)}<td className="whitespace-nowrap px-5 py-3.5">{matching ? <span className="text-xs text-[#898e95]">Comparando…</span> : result?.matched ? <span className="rounded-full bg-[#ebfcf7] px-2.5 py-1 text-xs font-semibold text-[#006b33]">Coincide · {String(result.cheque?.estado ?? 'Emitido')}</span> : <span className="rounded-full bg-[#feeff0] px-2.5 py-1 text-xs font-semibold text-[#a83c34]">No encontrado</span>}</td><td className="whitespace-nowrap px-5 py-3.5 font-mono text-xs text-[#0847ae]">{result?.cheque ? String(result.cheque.documentoFisicoId ?? '—') : '—'}</td><td className="whitespace-nowrap px-5 py-3.5 text-xs font-medium text-[#04102d]">{result?.cheque ? String(result.cheque.cuenta ?? '—') : '—'}</td><td className="px-5 py-3.5 text-xs text-[#49505b]">{result?.cheque ? <><p className="font-semibold">{String(result.cheque.banco ?? '—')}</p><p className="mt-0.5 text-[#898e95]">{String(result.cheque.documento ?? '—')}</p></> : '—'}</td></tr>; })}</tbody></table>{!filteredRows.length && <div className="px-6 py-14 text-center text-sm text-[#898e95]">No hay registros que coincidan con la búsqueda.</div>}</div>
-            <div className="border-t border-[#e1e2e4] bg-[#f8f8f9] px-5 py-5">
+            <div className="flex flex-col border-t border-[#e1e2e4] bg-[#f8f8f9] px-5 py-5">
               <div className="mb-4"><h3 className="font-semibold text-[#04102d]">Crear movimiento bancario</h3><p className="mt-1 text-xs text-[#898e95]">Se aplicará a los {selectedRows.size} registros seleccionados.</p></div>
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[.65fr_1fr_1fr_auto] xl:items-end">
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Tipo de documento</span><input type="text" value={tipoDocumento} onChange={(event) => setTipoDocumento(event.target.value.toUpperCase())} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 font-mono text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label>
@@ -260,6 +283,8 @@ export default function Home() {
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
                 <button type="button" onClick={() => void createMovementPreview()} disabled={movementLoading} className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] transition hover:bg-[#017ce2] disabled:cursor-wait disabled:opacity-60">{movementLoading ? 'Consultando operación…' : 'Crear movimiento'}</button>
               </div>
+              {asientoPreview && <div className="order-2 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#49505b]">Esta acción realizará un POST real en Finnegans.</p><button type="button" onClick={() => void submitMovement()} disabled={movementSending} className="rounded-lg bg-[#006b33] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(0,107,51,.18)] transition hover:bg-[#005329] disabled:cursor-wait disabled:opacity-60">{movementSending ? 'Enviando a Finnegans…' : 'Confirmar y enviar a Finnegans'}</button></div>}
+              {movementSuccess && <div role="status" className="order-3 mt-4 rounded-lg border border-[#b8e8d5] bg-[#ebfcf7] px-4 py-3 text-sm font-semibold text-[#006b33]">{movementSuccess}</div>}
               {movementMessage && <div role="alert" className="mt-4 rounded-lg border border-[#efc7c3] bg-[#fff5f4] px-4 py-3 text-sm text-[#a83c34]">{movementMessage}</div>}
               {asientoPreview && <div className="mt-5 overflow-hidden rounded-xl border border-[#dcdffc] bg-white"><div className="border-b border-[#dcdffc] bg-[#f0effa] px-4 py-3"><p className="text-sm font-semibold text-[#04102d]">Vista previa · MovimientoFondo</p><p className="mt-1 text-xs text-[#49505b]">{asientoPreview.operacion} · {asientoPreview.estadoOrigen} → {asientoPreview.estadoDestino}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b border-[#e1e2e4] text-left text-[11px] uppercase tracking-wider text-[#898e95]"><th className="px-4 py-3">documentofisicoID</th><th className="px-4 py-3">Referencia</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Debe</th><th className="px-4 py-3">Haber</th><th className="px-4 py-3">Estado destino</th></tr></thead><tbody>{asientoPreview.documentos.flatMap((item) => [<tr key={`${item.documentoFisicoId}-origen`} className="border-b border-[#eff0f1]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{item.cuentaOrigen}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3">{asientoPreview.estadoOrigen}</td></tr>, <tr key={`${item.documentoFisicoId}-destino`} className="border-b border-[#eff0f1] bg-[#fbfcff]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{asientoPreview.cuentaDestino}</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 font-medium text-[#006b33]">{asientoPreview.estadoDestino}</td></tr>])}</tbody></table></div></div>}
             </div>
