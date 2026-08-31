@@ -29,18 +29,24 @@ export async function GET() {
     const token = await requestToken();
     const reportBaseUrl = (process.env.FINNEGANS_REPORT_BASE_URL ?? 'https://api.finneg.com/api').replace(/\/$/, '');
     const params = new URLSearchParams({ ACCESS_TOKEN: token });
-    const response = await fetch(`${reportBaseUrl}/ESTADOBANCARIO/list?${params}`, { cache: 'no-store' });
+    let response: Response | null = null;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      response = await fetch(`${reportBaseUrl}/ESTADOBANCARIO/list?${params}`, { cache: 'no-store' });
+      if (response.ok || response.status < 500) break;
+      await new Promise((resolve) => setTimeout(resolve, 400 * (attempt + 1)));
+    }
+    if (!response) throw new Error('No se pudo iniciar la consulta de Estados Bancarios.');
     if (!response.ok) throw new Error(`No se pudieron consultar los Estados Bancarios (${response.status}).`);
     const result = await response.json();
     const rows = Array.isArray(result) ? result : result?.data ?? result?.rows;
     if (!Array.isArray(rows)) throw new Error('La API devolvió un formato inesperado.');
     const estados = rows
-      .filter((item) => item?.activo !== false)
-      .map((item) => ({ codigo: String(item.codigo ?? ''), nombre: String(item.nombre ?? '') }))
+      .filter((item) => (item?.activo ?? item?.Activo) !== false)
+      .map((item) => ({
+        codigo: String(item.codigo ?? item.Codigo ?? ''),
+        nombre: String(item.nombre ?? item.Nombre ?? ''),
+      }))
       .filter((item) => item.codigo && item.nombre);
-    if (!estados.some((item) => item.codigo.toLocaleLowerCase('es') === 'emitido')) {
-      estados.push({ codigo: 'Emitido', nombre: 'Emitido' });
-    }
     estados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return NextResponse.json({ estados });
   } catch (error) {

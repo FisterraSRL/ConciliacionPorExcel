@@ -40,7 +40,7 @@ export default function Home() {
   const [matching, setMatching] = useState(false);
   const [fechaHasta, setFechaHasta] = useState(todayInBuenosAires);
   const [tipoCheque, setTipoCheque] = useState('0');
-  const [estadoBancario, setEstadoBancario] = useState('Emitido');
+  const [estadoBancario, setEstadoBancario] = useState('arre');
   const [estadosBancarios, setEstadosBancarios] = useState<EstadoBancario[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
@@ -50,7 +50,10 @@ export default function Home() {
       .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => {
         setEstadosBancarios(body.estados);
-        if (body.estados.length && !body.estados.some((item: EstadoBancario) => item.codigo === estadoBancario)) setEstadoBancario(body.estados[0].codigo);
+        if (body.estados.length && !body.estados.some((item: EstadoBancario) => item.codigo === estadoBancario)) {
+          setEstadoBancario(body.estados[0].codigo);
+          setRefreshCounter((value) => value + 1);
+        }
       })
       .catch(() => setError('No se pudieron cargar los estados bancarios.'));
   }, []);
