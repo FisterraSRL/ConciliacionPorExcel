@@ -7,6 +7,7 @@ type Row = Record<string, Cell>;
 type MatchResult = { index: number; matched: boolean; cheque: { estado?: unknown; banco?: unknown; cuenta?: unknown; empresa?: unknown; documento?: unknown; fechaVencimiento?: unknown } | null };
 type EstadoBancario = { codigo: string; nombre: string };
 type OperacionBancaria = { codigo: string; nombre: string };
+type CuentaDestino = { codigo: string; nombre: string };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
 
 function todayInBuenosAires() {
@@ -47,6 +48,8 @@ export default function Home() {
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [operacionesBancarias, setOperacionesBancarias] = useState<OperacionBancaria[]>([]);
   const [operacionBancaria, setOperacionBancaria] = useState('');
+  const [cuentasDestino, setCuentasDestino] = useState<CuentaDestino[]>([]);
+  const [cuentaDestino, setCuentaDestino] = useState('');
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
@@ -66,6 +69,13 @@ export default function Home() {
         if (body.operaciones.length) setOperacionBancaria(body.operaciones[0].codigo);
       })
       .catch(() => setError('No se pudieron cargar las operaciones bancarias.'));
+    fetch('/api/cuentas')
+      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then((body) => {
+        setCuentasDestino(body.cuentas);
+        if (body.cuentas.length) setCuentaDestino(body.cuentas[0].codigo);
+      })
+      .catch(() => setError('No se pudieron cargar las cuentas destino.'));
   }, []);
 
   useEffect(() => {
@@ -192,7 +202,7 @@ export default function Home() {
               <div className="mb-4"><h3 className="font-semibold text-[#04102d]">Crear movimiento bancario</h3><p className="mt-1 text-xs text-[#898e95]">Se aplicará a los {selectedRows.size} registros seleccionados.</p></div>
               <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Operación bancaria</span><select value={operacionBancaria} onChange={(event) => setOperacionBancaria(event.target.value)} disabled={!operacionesBancarias.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{operacionesBancarias.length ? operacionesBancarias.map((operacion) => <option key={operacion.codigo} value={operacion.codigo}>{operacion.nombre}</option>) : <option>Cargando operaciones…</option>}</select></label>
-                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select disabled className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#898e95] disabled:bg-[#f0f1f2]"><option>Pendiente de conectar API</option></select></label>
+                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
                 <button type="button" disabled className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] disabled:cursor-not-allowed disabled:opacity-45">Crear movimiento</button>
               </div>
             </div>
