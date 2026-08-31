@@ -1,15 +1,4 @@
-import { NextResponse } from 'next/server';
-
-const transiciones: Record<string, { estadoOrigen: string; estadoDestino: string }> = {
-  CHDIF: { estadoOrigen: 'Diferido', estadoDestino: 'Conciliado' },
-  COBCHTERENCU: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Conciliado' },
-  RECHCHTERCERO: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Rechazado' },
-  DEPREALIZADO: { estadoOrigen: 'En Cartera', estadoDestino: 'Cheque Depositado' },
-  CHENDOSADOS: { estadoOrigen: 'En Cartera', estadoDestino: 'Endosado' },
-  RECHEEM: { estadoOrigen: 'Emitido', estadoDestino: 'Rechazado' },
-  CANJE: { estadoOrigen: 'Diferido', estadoDestino: 'Canjeado' },
-  RECHENDO: { estadoOrigen: 'Endosado', estadoDestino: 'Rechazado' },
-};
+import { NextRequest, NextResponse } from 'next/server';
 
 function requiredEnv(name: string) {
   const value = process.env[name];
@@ -35,11 +24,25 @@ async function requestToken() {
   return (await response.text()).trim();
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
     const token = await requestToken();
     const reportBaseUrl = (process.env.FINNEGANS_REPORT_BASE_URL ?? 'https://api.finneg.com/api').replace(/\/$/, '');
     const params = new URLSearchParams({ ACCESS_TOKEN: token });
+    const code = request.nextUrl.searchParams.get('codigo')?.trim();
+    if (code) {
+      const detailResponse = await fetch(`${reportBaseUrl}/tipoOperacionBancaria/${encodeURIComponent(code)}?${params}`, { cache: 'no-store' });
+      if (!detailResponse.ok) throw new Error(`No se pudo consultar la operación bancaria ${code} (${detailResponse.status}).`);
+      const detail = await detailResponse.json();
+      return NextResponse.json({
+        operacion: {
+          codigo: String(detail.Codigo ?? detail.codigo ?? code),
+          nombre: String(detail.Nombre ?? detail.nombre ?? code),
+          estadoOrigen: detail.EstadoIDOrigen == null ? null : String(detail.EstadoIDOrigen),
+          estadoDestino: detail.EstadoIDDestino == null ? null : String(detail.EstadoIDDestino),
+        },
+      });
+    }
     let response: Response | null = null;
     for (let attempt = 0; attempt < 3; attempt += 1) {
       response = await fetch(`${reportBaseUrl}/tipoOperacionBancaria/list?${params}`, { cache: 'no-store' });
@@ -56,7 +59,8 @@ export async function GET() {
       .map((item) => ({
         codigo: String(item.codigo ?? item.Codigo ?? ''),
         nombre: String(item.nombre ?? item.Nombre ?? ''),
-        ...(transiciones[String(item.codigo ?? item.Codigo ?? '')] ?? { estadoOrigen: null, estadoDestino: null }),
+        estadoOrigen: null,
+        estadoDestino: null,
       }))
       .filter((item) => item.codigo && item.nombre)
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));

@@ -57,6 +57,7 @@ export default function Home() {
   const [cuentaDestino, setCuentaDestino] = useState('');
   const [movementMessage, setMovementMessage] = useState('');
   const [asientoPreview, setAsientoPreview] = useState<AsientoPreview | null>(null);
+  const [movementLoading, setMovementLoading] = useState(false);
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
@@ -173,29 +174,43 @@ export default function Home() {
     });
   }
 
-  function createMovementPreview() {
+  async function createMovementPreview() {
     setMovementMessage('');
     setAsientoPreview(null);
     if (!selectedRows.size) { setMovementMessage('No hay registros seleccionados.'); return; }
     const selectedMatches = matchResults.filter((item) => selectedRows.has(item.index) && item.matched && item.cheque);
     if (selectedMatches.length !== selectedRows.size) { setMovementMessage('Solo se pueden incluir registros cuya situación sea Coincide.'); return; }
-    const operation = operacionesBancarias.find((item) => item.codigo === operacionBancaria);
-    if (!operation) { setMovementMessage('Seleccioná una operación bancaria.'); return; }
-    if (!operation.estadoOrigen || !operation.estadoDestino) { setMovementMessage(`La operación “${operation.nombre}” no tiene una transición de estados configurada para MovimientoFondo.`); return; }
+    const selectedOperation = operacionesBancarias.find((item) => item.codigo === operacionBancaria);
+    if (!selectedOperation) { setMovementMessage('Seleccioná una operación bancaria.'); return; }
+    setMovementLoading(true);
+    let operation: OperacionBancaria;
+    try {
+      const response = await fetch(`/api/operaciones-bancarias?codigo=${encodeURIComponent(selectedOperation.codigo)}`, { cache: 'no-store' });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error);
+      operation = body.operacion;
+      setOperacionesBancarias((current) => current.map((item) => item.codigo === operation.codigo ? operation : item));
+    } catch (cause) {
+      setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo consultar la definición de la operación bancaria.');
+      setMovementLoading(false);
+      return;
+    }
+    if (!operation.estadoOrigen || !operation.estadoDestino) { setMovementMessage(`La operación “${operation.nombre}” no tiene estados origen y destino configurados en Finnegans.`); setMovementLoading(false); return; }
     const selectedState = estadosBancarios.find((item) => item.codigo === estadoBancario);
     const normalizedSelectedState = (selectedState?.nombre ?? estadoBancario).trim().toLocaleLowerCase('es');
-    if (normalizedSelectedState !== operation.estadoOrigen.toLocaleLowerCase('es')) { setMovementMessage(`La operación “${operation.nombre}” requiere el estado origen “${operation.estadoOrigen}”, pero el filtro seleccionado es “${selectedState?.nombre ?? estadoBancario}”.`); return; }
+    if (normalizedSelectedState !== operation.estadoOrigen.toLocaleLowerCase('es')) { setMovementMessage(`La operación “${operation.nombre}” requiere el estado origen “${operation.estadoOrigen}”, pero el filtro seleccionado es “${selectedState?.nombre ?? estadoBancario}”.`); setMovementLoading(false); return; }
     const destination = cuentasDestino.find((item) => item.codigo === cuentaDestino);
-    if (!destination) { setMovementMessage('Seleccioná una cuenta destino.'); return; }
+    if (!destination) { setMovementMessage('Seleccioná una cuenta destino.'); setMovementLoading(false); return; }
     const documents = selectedMatches.map((item) => ({
       documentoFisicoId: String(item.cheque?.documentoFisicoId ?? ''),
       referencia: String(rows[item.index]?.Referencia ?? ''),
       importe: rows[item.index]?.Importe ?? null,
       cuentaOrigen: String(item.cheque?.cuenta ?? ''),
     }));
-    if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); return; }
-    if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); return; }
+    if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
+    if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
     setAsientoPreview({ operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos });
+    setMovementLoading(false);
   }
 
   return (
@@ -242,7 +257,7 @@ export default function Home() {
               <div className="grid gap-4 md:grid-cols-[1fr_1fr_auto] md:items-end">
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Operación bancaria</span><select value={operacionBancaria} onChange={(event) => setOperacionBancaria(event.target.value)} disabled={!operacionesBancarias.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{operacionesBancarias.length ? operacionesBancarias.map((operacion) => <option key={operacion.codigo} value={operacion.codigo}>{operacion.nombre}</option>) : <option>Cargando operaciones…</option>}</select></label>
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
-                <button type="button" onClick={createMovementPreview} className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] transition hover:bg-[#017ce2]">Crear movimiento</button>
+                <button type="button" onClick={() => void createMovementPreview()} disabled={movementLoading} className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] transition hover:bg-[#017ce2] disabled:cursor-wait disabled:opacity-60">{movementLoading ? 'Consultando operación…' : 'Crear movimiento'}</button>
               </div>
               {movementMessage && <div role="alert" className="mt-4 rounded-lg border border-[#efc7c3] bg-[#fff5f4] px-4 py-3 text-sm text-[#a83c34]">{movementMessage}</div>}
               {asientoPreview && <div className="mt-5 overflow-hidden rounded-xl border border-[#dcdffc] bg-white"><div className="border-b border-[#dcdffc] bg-[#f0effa] px-4 py-3"><p className="text-sm font-semibold text-[#04102d]">Vista previa · MovimientoFondo</p><p className="mt-1 text-xs text-[#49505b]">{asientoPreview.operacion} · {asientoPreview.estadoOrigen} → {asientoPreview.estadoDestino}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b border-[#e1e2e4] text-left text-[11px] uppercase tracking-wider text-[#898e95]"><th className="px-4 py-3">documentofisicoID</th><th className="px-4 py-3">Referencia</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Debe</th><th className="px-4 py-3">Haber</th><th className="px-4 py-3">Estado destino</th></tr></thead><tbody>{asientoPreview.documentos.flatMap((item) => [<tr key={`${item.documentoFisicoId}-origen`} className="border-b border-[#eff0f1]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{item.cuentaOrigen}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3">{asientoPreview.estadoOrigen}</td></tr>, <tr key={`${item.documentoFisicoId}-destino`} className="border-b border-[#eff0f1] bg-[#fbfcff]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{asientoPreview.cuentaDestino}</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 font-medium text-[#006b33]">{asientoPreview.estadoDestino}</td></tr>])}</tbody></table></div></div>}
