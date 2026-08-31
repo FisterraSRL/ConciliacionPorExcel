@@ -40,7 +40,7 @@ export default function Home() {
   const [matching, setMatching] = useState(false);
   const [fechaHasta, setFechaHasta] = useState(todayInBuenosAires);
   const [tipoCheque, setTipoCheque] = useState('0');
-  const [estadoBancario, setEstadoBancario] = useState('arre');
+  const [estadoBancario, setEstadoBancario] = useState('Emitido');
   const [estadosBancarios, setEstadosBancarios] = useState<EstadoBancario[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
 

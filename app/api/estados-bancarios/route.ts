@@ -37,8 +37,11 @@ export async function GET() {
     const estados = rows
       .filter((item) => item?.activo !== false)
       .map((item) => ({ codigo: String(item.codigo ?? ''), nombre: String(item.nombre ?? '') }))
-      .filter((item) => item.codigo && item.nombre)
-      .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+      .filter((item) => item.codigo && item.nombre);
+    if (!estados.some((item) => item.codigo.toLocaleLowerCase('es') === 'emitido')) {
+      estados.push({ codigo: 'Emitido', nombre: 'Emitido' });
+    }
+    estados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return NextResponse.json({ estados });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Error al consultar Estados Bancarios.' }, { status: 502 });
