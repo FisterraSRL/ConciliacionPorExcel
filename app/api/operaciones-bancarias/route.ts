@@ -1,5 +1,16 @@
 import { NextResponse } from 'next/server';
 
+const transiciones: Record<string, { estadoOrigen: string; estadoDestino: string }> = {
+  CHDIF: { estadoOrigen: 'Emitido', estadoDestino: 'Diferido' },
+  COBCHTERENCU: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Conciliado' },
+  RECHCHTERCERO: { estadoOrigen: 'Cheque Depositado', estadoDestino: 'Rechazado' },
+  DEPREALIZADO: { estadoOrigen: 'En Cartera', estadoDestino: 'Cheque Depositado' },
+  CHENDOSADOS: { estadoOrigen: 'En Cartera', estadoDestino: 'Endosado' },
+  RECHEEM: { estadoOrigen: 'Emitido', estadoDestino: 'Rechazado' },
+  CANJE: { estadoOrigen: 'Diferido', estadoDestino: 'Canjeado' },
+  RECHENDO: { estadoOrigen: 'Endosado', estadoDestino: 'Rechazado' },
+};
+
 function requiredEnv(name: string) {
   const value = process.env[name];
   if (!value) throw new Error(`Falta configurar ${name}.`);
@@ -45,6 +56,7 @@ export async function GET() {
       .map((item) => ({
         codigo: String(item.codigo ?? item.Codigo ?? ''),
         nombre: String(item.nombre ?? item.Nombre ?? ''),
+        ...(transiciones[String(item.codigo ?? item.Codigo ?? '')] ?? { estadoOrigen: null, estadoDestino: null }),
       }))
       .filter((item) => item.codigo && item.nombre)
       .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));

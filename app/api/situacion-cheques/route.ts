@@ -136,6 +136,7 @@ export async function POST(request: NextRequest) {
           empresa: cheque.EMPRESA,
           documento: cheque.DOCUMENTO,
           fechaVencimiento: cheque.FECHAVENCIMIENTO,
+          documentoFisicoId: cheque.DOCUMENTOFISICOID ?? cheque.DOCUMENTOFISICO_ID ?? cheque.IDDOCUMENTOFISICO ?? cheque.ID_DOCUMENTOFISICO,
         } : null,
       };
     });
