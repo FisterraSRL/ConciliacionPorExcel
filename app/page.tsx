@@ -44,9 +44,9 @@ export default function Home() {
   const [matching, setMatching] = useState(false);
   const [fechaHasta, setFechaHasta] = useState(todayInBuenosAires);
   const [tipoCheque, setTipoCheque] = useState('0');
-  const [estadoBancario, setEstadoBancario] = useState('arre');
+  const [estadoBancario, setEstadoBancario] = useState('Diferido');
   const [cuentaContable, setCuentaContable] = useState('');
-  const [empresa, setEmpresa] = useState('');
+  const [empresa, setEmpresa] = useState('049CDS');
   const [empresasSucursales, setEmpresasSucursales] = useState<EmpresaSucursal[]>([]);
   const [estadosBancarios, setEstadosBancarios] = useState<EstadoBancario[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
