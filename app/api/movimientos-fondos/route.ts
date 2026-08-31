@@ -43,7 +43,7 @@ export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {
       tipoDocumento?: string; descripcion?: string; empresaId?: string; fecha?: string;
-      operacionId?: string; estadoDestino?: string; cuentaDestinoId?: string; documentos?: MovimientoDocument[];
+      operacionId?: string; estadoDestino?: string; cuentaDestinoId?: string; documentos?: MovimientoDocument[]; previewOnly?: boolean;
     };
     const tipoDocumento = String(body.tipoDocumento ?? '').trim();
     const empresaId = String(body.empresaId ?? '').trim();
@@ -93,6 +93,7 @@ export async function POST(request: NextRequest) {
       FechaComprobante: fecha,
       AsientoItems: asientoItems,
     };
+    if (body.previewOnly) return NextResponse.json({ success: true, payload });
     const token = await requestToken();
     const apiBaseUrl = (process.env.FINNEGANS_REPORT_BASE_URL ?? 'https://api.finneg.com/api').replace(/\/$/, '');
     const params = new URLSearchParams({ ACCESS_TOKEN: token });

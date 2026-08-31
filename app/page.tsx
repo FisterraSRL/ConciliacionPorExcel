@@ -61,6 +61,9 @@ export default function Home() {
   const [movementLoading, setMovementLoading] = useState(false);
   const [movementSending, setMovementSending] = useState(false);
   const [movementSuccess, setMovementSuccess] = useState('');
+  const [movementJson, setMovementJson] = useState<unknown>(null);
+  const [endpointResponse, setEndpointResponse] = useState<unknown>(null);
+  const [endpointResponseOk, setEndpointResponseOk] = useState<boolean | null>(null);
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
@@ -180,6 +183,9 @@ export default function Home() {
   async function createMovementPreview() {
     setMovementMessage('');
     setMovementSuccess('');
+    setMovementJson(null);
+    setEndpointResponse(null);
+    setEndpointResponseOk(null);
     setAsientoPreview(null);
     if (!selectedRows.size) { setMovementMessage('No hay registros seleccionados.'); return; }
     const selectedMatches = matchResults.filter((item) => selectedRows.has(item.index) && item.matched && item.cheque);
@@ -210,7 +216,15 @@ export default function Home() {
       }));
       if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); return; }
       if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); return; }
-      setAsientoPreview({ tipoDocumento: tipoDocumento.trim(), operacion: operation.nombre, operacionId: operation.codigo, empresaId: empresa, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, cuentaDestinoId: destination.codigo, documentos: documents });
+      const preview = { tipoDocumento: tipoDocumento.trim(), operacion: operation.nombre, operacionId: operation.codigo, empresaId: empresa, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, cuentaDestinoId: destination.codigo, documentos: documents };
+      const previewResponse = await fetch('/api/movimientos-fondos', {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ ...preview, fecha: todayInBuenosAires(), descripcion: `${preview.operacion} - Conciliación Excel`, previewOnly: true }),
+      });
+      const previewBody = await previewResponse.json();
+      if (!previewResponse.ok) throw new Error(previewBody.error);
+      setAsientoPreview(preview);
+      setMovementJson(previewBody.payload);
     } catch (cause) {
       setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear la vista previa del movimiento.');
     } finally {
@@ -222,16 +236,22 @@ export default function Home() {
     if (!asientoPreview || movementSending) return;
     if (!window.confirm(`Se creará un movimiento ${asientoPreview.tipoDocumento} con ${asientoPreview.documentos.length} documentos en Finnegans. ¿Confirmar?`)) return;
     setMovementSending(true); setMovementMessage(''); setMovementSuccess('');
+    setEndpointResponse(null); setEndpointResponseOk(null);
+    let receivedResponse = false;
     try {
       const response = await fetch('/api/movimientos-fondos', {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...asientoPreview, fecha: todayInBuenosAires(), descripcion: `${asientoPreview.operacion} - Conciliación Excel`, documentos: asientoPreview.documentos }),
       });
       const body = await response.json();
+      receivedResponse = true;
+      setEndpointResponse(body);
+      setEndpointResponseOk(response.ok);
       if (!response.ok) throw new Error(body.error);
       const transactionId = body.result?.TransaccionID ?? body.result?.transaccionID ?? body.result?.id;
       setMovementSuccess(transactionId ? `Movimiento creado correctamente. Transacción: ${transactionId}.` : 'Movimiento creado correctamente en Finnegans.');
     } catch (cause) {
+      if (!receivedResponse) { setEndpointResponse({ error: cause instanceof Error ? cause.message : 'Error desconocido.' }); setEndpointResponseOk(false); }
       setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear el movimiento en Finnegans.');
     } finally { setMovementSending(false); }
   }
@@ -283,8 +303,10 @@ export default function Home() {
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
                 <button type="button" onClick={() => void createMovementPreview()} disabled={movementLoading} className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] transition hover:bg-[#017ce2] disabled:cursor-wait disabled:opacity-60">{movementLoading ? 'Consultando operación…' : 'Crear movimiento'}</button>
               </div>
-              {asientoPreview && <div className="order-2 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#49505b]">Esta acción realizará un POST real en Finnegans.</p><button type="button" onClick={() => void submitMovement()} disabled={movementSending} className="rounded-lg bg-[#006b33] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(0,107,51,.18)] transition hover:bg-[#005329] disabled:cursor-wait disabled:opacity-60">{movementSending ? 'Enviando a Finnegans…' : 'Confirmar y enviar a Finnegans'}</button></div>}
+              {movementJson != null && <div className="order-1 mt-4 overflow-hidden rounded-xl border border-[#dcdffc] bg-[#04102d]"><div className="border-b border-white/10 px-4 py-3 text-sm font-semibold text-white">JSON que se enviará a Finnegans</div><pre className="max-h-96 overflow-auto p-4 text-xs leading-5 text-[#b9e6ff]">{JSON.stringify(movementJson, null, 2)}</pre></div>}
+              {asientoPreview && movementJson != null && <div className="order-2 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#49505b]">Esta acción realizará un POST real en Finnegans.</p><button type="button" onClick={() => void submitMovement()} disabled={movementSending} className="rounded-lg bg-[#006b33] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(0,107,51,.18)] transition hover:bg-[#005329] disabled:cursor-wait disabled:opacity-60">{movementSending ? 'Enviando a Finnegans…' : 'Confirmar y enviar a Finnegans'}</button></div>}
               {movementSuccess && <div role="status" className="order-3 mt-4 rounded-lg border border-[#b8e8d5] bg-[#ebfcf7] px-4 py-3 text-sm font-semibold text-[#006b33]">{movementSuccess}</div>}
+              {endpointResponse != null && <div className={`order-4 mt-4 overflow-hidden rounded-xl border ${endpointResponseOk ? 'border-[#b8e8d5] bg-[#ebfcf7]' : 'border-[#efc7c3] bg-[#fff5f4]'}`}><div className={`border-b px-4 py-3 text-sm font-semibold ${endpointResponseOk ? 'border-[#b8e8d5] text-[#006b33]' : 'border-[#efc7c3] text-[#a83c34]'}`}>{endpointResponseOk ? 'Respuesta de Finnegans' : 'Error devuelto por el endpoint'}</div><pre className="max-h-80 overflow-auto p-4 text-xs leading-5 text-[#1b2432]">{JSON.stringify(endpointResponse, null, 2)}</pre></div>}
               {movementMessage && <div role="alert" className="mt-4 rounded-lg border border-[#efc7c3] bg-[#fff5f4] px-4 py-3 text-sm text-[#a83c34]">{movementMessage}</div>}
               {asientoPreview && <div className="mt-5 overflow-hidden rounded-xl border border-[#dcdffc] bg-white"><div className="border-b border-[#dcdffc] bg-[#f0effa] px-4 py-3"><p className="text-sm font-semibold text-[#04102d]">Vista previa · MovimientoFondo</p><p className="mt-1 text-xs text-[#49505b]">{asientoPreview.operacion} · {asientoPreview.estadoOrigen} → {asientoPreview.estadoDestino}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b border-[#e1e2e4] text-left text-[11px] uppercase tracking-wider text-[#898e95]"><th className="px-4 py-3">documentofisicoID</th><th className="px-4 py-3">Referencia</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Debe</th><th className="px-4 py-3">Haber</th><th className="px-4 py-3">Estado destino</th></tr></thead><tbody>{asientoPreview.documentos.flatMap((item) => [<tr key={`${item.documentoFisicoId}-origen`} className="border-b border-[#eff0f1]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{item.cuentaOrigen}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3">{asientoPreview.estadoOrigen}</td></tr>, <tr key={`${item.documentoFisicoId}-destino`} className="border-b border-[#eff0f1] bg-[#fbfcff]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{asientoPreview.cuentaDestino}</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 font-medium text-[#006b33]">{asientoPreview.estadoDestino}</td></tr>])}</tbody></table></div></div>}
             </div>
