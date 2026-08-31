@@ -56,18 +56,18 @@ async function requestToken() {
   return (await response.text()).trim();
 }
 
-function validateFilters(fechaHasta: unknown, tipoCheque: unknown, estado: unknown, cuentaContable: unknown) {
+function validateFilters(fechaHasta: unknown, tipoCheque: unknown, estado: unknown, cuentaContable: unknown, empresa: unknown) {
   const date = String(fechaHasta || todayInBuenosAires());
   const type = String(tipoCheque ?? '0');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) throw new Error('La fecha hasta no es válida.');
   if (type !== '0' && type !== '1') throw new Error('El tipo de cheque no es válido.');
   const bankStatus = String(estado ?? '').trim();
   if (!bankStatus) throw new Error('Debe seleccionar un estado bancario.');
-  return { fechaHasta: date, tipoCheque: type, estado: bankStatus, cuentaContable: String(cuentaContable ?? '').trim() };
+  return { fechaHasta: date, tipoCheque: type, estado: bankStatus, cuentaContable: String(cuentaContable ?? '').trim(), empresa: String(empresa ?? '').trim() };
 }
 
-async function loadCheques(fechaHasta: string, tipoCheque: string, estado: string, cuentaContable: string, forceRefresh = false) {
-  const key = `${fechaHasta}|${tipoCheque}|${estado}|${cuentaContable}`;
+async function loadCheques(fechaHasta: string, tipoCheque: string, estado: string, cuentaContable: string, empresa: string, forceRefresh = false) {
+  const key = `${fechaHasta}|${tipoCheque}|${estado}|${cuentaContable}|${empresa}`;
   const cached = chequeCache.get(key);
   if (!forceRefresh && cached && (cached.loadedAt === 0 || Date.now() - cached.loadedAt < CACHE_TTL_MS)) return cached.promise;
   const entry = { loadedAt: 0, promise: Promise.resolve([] as ApiCheque[]) };
@@ -81,7 +81,7 @@ async function loadCheques(fechaHasta: string, tipoCheque: string, estado: strin
       PARAMWEBREPORT_Organizacion: '',
       PARAMWEBREPORT_CircuitoContable: '',
       PARAMWEBREPORT_CuentaContable: cuentaContable,
-      PARAMWEBREPORT_Empresa: '',
+      PARAMWEBREPORT_Empresa: empresa,
       PARAMWEBREPORT_FechaVencimientoDesde: '',
       PARAMWEBREPORT_FechaVencimientoHasta: '',
       PARAMWEBREPORT_MostrarSoloNoConciliados: 'true',
@@ -101,10 +101,10 @@ async function loadCheques(fechaHasta: string, tipoCheque: string, estado: strin
 
 export async function GET(request: NextRequest) {
   try {
-    const filters = validateFilters(request.nextUrl.searchParams.get('fechaHasta'), request.nextUrl.searchParams.get('tipoCheque'), request.nextUrl.searchParams.get('estado'), request.nextUrl.searchParams.get('cuentaContable'));
+    const filters = validateFilters(request.nextUrl.searchParams.get('fechaHasta'), request.nextUrl.searchParams.get('tipoCheque'), request.nextUrl.searchParams.get('estado'), request.nextUrl.searchParams.get('cuentaContable'), request.nextUrl.searchParams.get('empresa'));
     const forceRefresh = request.nextUrl.searchParams.get('refresh') === '1';
-    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable, forceRefresh);
-    const cached = chequeCache.get(`${filters.fechaHasta}|${filters.tipoCheque}|${filters.estado}|${filters.cuentaContable}`);
+    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable, filters.empresa, forceRefresh);
+    const cached = chequeCache.get(`${filters.fechaHasta}|${filters.tipoCheque}|${filters.estado}|${filters.cuentaContable}|${filters.empresa}`);
     return NextResponse.json({ ready: true, count: cheques.length, loadedAt: new Date(cached?.loadedAt ?? Date.now()).toISOString(), filters });
   } catch (error) {
     return NextResponse.json({ ready: false, error: error instanceof Error ? error.message : 'Error al consultar Finnegans.' }, { status: 502 });
@@ -113,10 +113,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { rows?: ExcelRow[]; fechaHasta?: string; tipoCheque?: string; estado?: string; cuentaContable?: string };
+    const body = await request.json() as { rows?: ExcelRow[]; fechaHasta?: string; tipoCheque?: string; estado?: string; cuentaContable?: string; empresa?: string };
     if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'No se recibieron registros.' }, { status: 400 });
-    const filters = validateFilters(body.fechaHasta, body.tipoCheque, body.estado, body.cuentaContable);
-    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable);
+    const filters = validateFilters(body.fechaHasta, body.tipoCheque, body.estado, body.cuentaContable, body.empresa);
+    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable, filters.empresa);
     const index = new Map<string, ApiCheque>();
     for (const cheque of cheques) {
       const key = matchKey(cheque.NUMERO, cheque.IMPORTEMONTRANSACCION);

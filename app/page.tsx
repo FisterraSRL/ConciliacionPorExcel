@@ -8,6 +8,7 @@ type MatchResult = { index: number; matched: boolean; cheque: { estado?: unknown
 type EstadoBancario = { codigo: string; nombre: string };
 type OperacionBancaria = { codigo: string; nombre: string };
 type CuentaDestino = { codigo: string; nombre: string };
+type EmpresaSucursal = { codigo: string; nombre: string };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
 
 function todayInBuenosAires() {
@@ -44,6 +45,8 @@ export default function Home() {
   const [tipoCheque, setTipoCheque] = useState('0');
   const [estadoBancario, setEstadoBancario] = useState('arre');
   const [cuentaContable, setCuentaContable] = useState('');
+  const [empresa, setEmpresa] = useState('');
+  const [empresasSucursales, setEmpresasSucursales] = useState<EmpresaSucursal[]>([]);
   const [estadosBancarios, setEstadosBancarios] = useState<EstadoBancario[]>([]);
   const [refreshCounter, setRefreshCounter] = useState(0);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
@@ -77,27 +80,31 @@ export default function Home() {
         if (body.cuentas.length) setCuentaDestino(body.cuentas[0].codigo);
       })
       .catch(() => setError('No se pudieron cargar las cuentas destino.'));
+    fetch('/api/empresas-sucursales')
+      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then((body) => setEmpresasSucursales(body.empresasSucursales))
+      .catch(() => setError('No se pudieron cargar las empresas y sucursales.'));
   }, []);
 
   useEffect(() => {
     let active = true;
     setApiStatus('loading');
-    const params = new URLSearchParams({ fechaHasta, tipoCheque, estado: estadoBancario, cuentaContable });
+    const params = new URLSearchParams({ fechaHasta, tipoCheque, estado: estadoBancario, cuentaContable, empresa });
     if (refreshCounter > 0) params.set('refresh', '1');
     fetch(`/api/situacion-cheques?${params}`)
       .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => { if (active) { setApiCount(body.count); setApiStatus('ready'); } })
       .catch(() => { if (active) setApiStatus('error'); });
-    if (rows.length) void reconcile(rows, fechaHasta, tipoCheque, estadoBancario, cuentaContable);
+    if (rows.length) void reconcile(rows, fechaHasta, tipoCheque, estadoBancario, cuentaContable, empresa);
     return () => { active = false; };
   }, [refreshCounter]);
 
-  async function reconcile(parsedRows: Row[], selectedDate = fechaHasta, selectedType = tipoCheque, selectedStatus = estadoBancario, selectedAccount = cuentaContable) {
+  async function reconcile(parsedRows: Row[], selectedDate = fechaHasta, selectedType = tipoCheque, selectedStatus = estadoBancario, selectedAccount = cuentaContable, selectedCompany = empresa) {
     setMatching(true); setMatchResults([]);
     try {
       const response = await fetch('/api/situacion-cheques', {
         method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, estado: selectedStatus, cuentaContable: selectedAccount, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
+        body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, estado: selectedStatus, cuentaContable: selectedAccount, empresa: selectedCompany, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
       });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error);
@@ -175,11 +182,12 @@ export default function Home() {
 
         <section className="mb-5 rounded-2xl border border-[#e1e2e4] bg-white p-5 shadow-[0_8px_28px_rgba(31,52,69,.05)]">
           <div className="mb-4"><h3 className="font-semibold text-[#04102d]">Filtros de Finnegans</h3><p className="mt-1 text-xs text-[#898e95]">Definen qué cheques se consultan y se comparan con el archivo.</p></div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1.35fr_auto]">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => setFechaHasta(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Tipo de cheque</span><select value={tipoCheque} onChange={(event) => setTipoCheque(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"><option value="0">Propio</option><option value="1">Tercero</option></select></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Estado bancario</span><select value={estadoBancario} onChange={(event) => setEstadoBancario(event.target.value)} disabled={!estadosBancarios.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]">{estadosBancarios.length ? estadosBancarios.map((estado) => <option key={estado.codigo} value={estado.codigo}>{estado.nombre}</option>) : <option>Cargando estados…</option>}</select></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta contable</span><select value={cuentaContable} onChange={(event) => setCuentaContable(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]"><option value="">Todas las cuentas</option>{cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>)}</select></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Empresa / sucursal</span><select value={empresa} onChange={(event) => setEmpresa(event.target.value)} disabled={!empresasSucursales.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]"><option value="">Todas las empresas y sucursales</option>{empresasSucursales.map((item) => <option key={item.codigo} value={item.codigo}>{item.nombre}</option>)}</select></label>
             <button type="button" onClick={() => setRefreshCounter((value) => value + 1)} disabled={apiStatus === 'loading' || !estadoBancario} className="self-end rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.2)] transition hover:bg-[#017ce2] disabled:cursor-not-allowed disabled:opacity-60">{apiStatus === 'loading' ? 'Actualizando…' : 'Actualizar'}</button>
           </div>
         </section>
