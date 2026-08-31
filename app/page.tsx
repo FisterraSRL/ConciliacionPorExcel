@@ -209,7 +209,7 @@ export default function Home() {
     }));
     if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
     if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); setMovementLoading(false); return; }
-    setAsientoPreview({ operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos });
+    setAsientoPreview({ operacion: operation.nombre, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, documentos: documents });
     setMovementLoading(false);
   }
 
