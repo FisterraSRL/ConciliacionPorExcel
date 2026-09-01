@@ -21,6 +21,32 @@ function amount(value: unknown) {
   return Number(normalized);
 }
 
+function normalizeDate(value: unknown) {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+
+  let year: number;
+  let month: number;
+  let day: number;
+  const isoMatch = /^(\d{4})-(\d{2})-(\d{2})(?:[T\s].*)?$/.exec(text);
+  const localMatch = /^(\d{2})[-/](\d{2})[-/](\d{4})$/.exec(text);
+
+  if (isoMatch) {
+    [, year, month, day] = isoMatch.map(Number);
+  } else if (localMatch) {
+    [, day, month, year] = localMatch.map(Number);
+  } else {
+    throw new Error(`La fecha de vencimiento "${text}" no tiene un formato válido.`);
+  }
+
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  if (parsed.getUTCFullYear() !== year || parsed.getUTCMonth() !== month - 1 || parsed.getUTCDate() !== day) {
+    throw new Error(`La fecha de vencimiento "${text}" no es válida.`);
+  }
+
+  return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
 async function requestToken() {
   const baseUrl = requiredEnv('FINNEGANS_API_BASE_URL').replace(/\/$/, '');
   const params = new URLSearchParams({
@@ -62,7 +88,7 @@ export async function POST(request: NextRequest) {
       referencia: String(item.referencia ?? '').trim(),
       importe: amount(item.importe),
       cuentaOrigen: String(item.cuentaOrigen ?? '').trim(),
-      fechaVencimiento: item.fechaVencimiento ? String(item.fechaVencimiento) : null,
+      fechaVencimiento: normalizeDate(item.fechaVencimiento),
     }));
     if (documents.some((item) => !Number.isFinite(item.documentoFisicoId) || !item.referencia || !Number.isFinite(item.importe) || item.importe <= 0 || !item.cuentaOrigen)) {
       return NextResponse.json({ error: 'Uno o más documentos contienen datos inválidos.' }, { status: 400 });

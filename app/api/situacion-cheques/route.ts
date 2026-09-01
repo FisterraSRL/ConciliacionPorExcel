@@ -133,6 +133,7 @@ export async function POST(request: NextRequest) {
           estado: cheque.ESTADO,
           banco: cheque.BANCO,
           cuenta: cheque.CUENTA,
+          cuentaCodigo: cheque.CUENTACODIGO ?? cheque.CODIGOCUENTA ?? cheque.CUENTAID ?? cheque.CUENTA_ID,
           empresa: cheque.EMPRESA,
           documento: cheque.DOCUMENTO,
           fechaVencimiento: cheque.FECHAVENCIMIENTO,

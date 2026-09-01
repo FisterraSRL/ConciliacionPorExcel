@@ -4,7 +4,7 @@ import { ChangeEvent, DragEvent, useEffect, useMemo, useRef, useState } from 're
 
 type Cell = string | number | boolean | Date | null;
 type Row = Record<string, Cell>;
-type MatchResult = { index: number; matched: boolean; cheque: { estado?: unknown; banco?: unknown; cuenta?: unknown; empresa?: unknown; documento?: unknown; fechaVencimiento?: unknown; documentoFisicoId?: unknown } | null };
+type MatchResult = { index: number; matched: boolean; cheque: { estado?: unknown; banco?: unknown; cuenta?: unknown; cuentaCodigo?: unknown; empresa?: unknown; documento?: unknown; fechaVencimiento?: unknown; documentoFisicoId?: unknown } | null };
 type EstadoBancario = { codigo: string; nombre: string };
 type OperacionBancaria = { codigo: string; nombre: string; estadoOrigen: string | null; estadoDestino: string | null };
 type CuentaDestino = { codigo: string; nombre: string };
@@ -26,6 +26,13 @@ function displayValue(value: Cell, column: string) {
   if (column === 'Importe') return formatMoney(value);
   if (value instanceof Date) return new Intl.DateTimeFormat('es-AR').format(value);
   return String(value);
+}
+
+function accountNameKey(value: unknown) {
+  return String(value ?? '')
+    .replace(/\s*\([^)]*\)\s*$/, '')
+    .trim()
+    .toLocaleLowerCase('es');
 }
 
 export default function Home() {
@@ -211,11 +218,19 @@ export default function Home() {
         documentoFisicoId: String(item.cheque?.documentoFisicoId ?? ''),
         referencia: String(rows[item.index]?.Referencia ?? ''),
         importe: rows[item.index]?.Importe ?? null,
-        cuentaOrigen: String(item.cheque?.cuenta ?? ''),
+        cuentaOrigen: (() => {
+          const reportedCode = String(item.cheque?.cuentaCodigo ?? '').trim();
+          if (reportedCode && cuentasDestino.some((account) => account.codigo === reportedCode)) return reportedCode;
+          const reportedAccount = String(item.cheque?.cuenta ?? '').trim();
+          return cuentasDestino.find((account) =>
+            account.codigo === reportedAccount ||
+            accountNameKey(account.nombre) === accountNameKey(reportedAccount)
+          )?.codigo ?? '';
+        })(),
         fechaVencimiento: item.cheque?.fechaVencimiento ? String(item.cheque.fechaVencimiento) : null,
       }));
       if (documents.some((item) => !item.documentoFisicoId)) { setMovementMessage('Finnegans no devolvió el documentofisicoID de uno o más cheques seleccionados.'); return; }
-      if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se pudo determinar la cuenta origen de uno o más cheques seleccionados.'); return; }
+      if (documents.some((item) => !item.cuentaOrigen)) { setMovementMessage('No se encontró el código de la cuenta origen de uno o más cheques en el listado de cuentas de Finnegans.'); return; }
       const preview = { tipoDocumento: tipoDocumento.trim(), operacion: operation.nombre, operacionId: operation.codigo, empresaId: empresa, estadoOrigen: operation.estadoOrigen, estadoDestino: operation.estadoDestino, cuentaDestino: destination.nombre, cuentaDestinoId: destination.codigo, documentos: documents };
       const previewResponse = await fetch('/api/movimientos-fondos', {
         method: 'POST', headers: { 'content-type': 'application/json' },
@@ -272,7 +287,7 @@ export default function Home() {
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Fecha hasta</span><input type="date" value={fechaHasta} onChange={(event) => setFechaHasta(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Tipo de cheque</span><select value={tipoCheque} onChange={(event) => setTipoCheque(event.target.value)} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"><option value="0">Propio</option><option value="1">Tercero</option></select></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Estado bancario</span><select value={estadoBancario} onChange={(event) => setEstadoBancario(event.target.value)} disabled={!estadosBancarios.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]">{estadosBancarios.length ? estadosBancarios.map((estado) => <option key={estado.codigo} value={estado.codigo}>{estado.nombre}</option>) : <option>Cargando estados…</option>}</select></label>
-            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta contable</span><select value={cuentaContable} onChange={(event) => setCuentaContable(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]"><option value="">Todas las cuentas</option>{cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>)}</select></label>
+            <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta contable</span><select value={cuentaContable} onChange={(event) => setCuentaContable(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]"><option value="">Todas las cuentas</option>{cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.codigo} — {cuenta.nombre}</option>)}</select></label>
             <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Empresa / sucursal</span><select value={empresa} onChange={(event) => setEmpresa(event.target.value)} disabled={!empresasSucursales.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f8f8f9] disabled:text-[#898e95]"><option value="">Todas las empresas y sucursales</option>{empresasSucursales.map((item) => <option key={item.codigo} value={item.codigo}>{item.nombre}</option>)}</select></label>
             <button type="button" onClick={() => setRefreshCounter((value) => value + 1)} disabled={apiStatus === 'loading' || !estadoBancario} className="self-end rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.2)] transition hover:bg-[#017ce2] disabled:cursor-not-allowed disabled:opacity-60">{apiStatus === 'loading' ? 'Actualizando…' : 'Actualizar'}</button>
           </div>
@@ -300,7 +315,7 @@ export default function Home() {
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-[.65fr_1fr_1fr_auto] xl:items-end">
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Tipo de documento</span><input type="text" value={tipoDocumento} onChange={(event) => setTipoDocumento(event.target.value.toUpperCase())} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 font-mono text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15"/></label>
                 <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Operación bancaria</span><select value={operacionBancaria} onChange={(event) => setOperacionBancaria(event.target.value)} disabled={!operacionesBancarias.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{operacionesBancarias.length ? operacionesBancarias.map((operacion) => <option key={operacion.codigo} value={operacion.codigo}>{operacion.nombre}</option>) : <option>Cargando operaciones…</option>}</select></label>
-                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
+                <label className="block"><span className="mb-1.5 block text-xs font-semibold text-[#49505b]">Cuenta destino</span><select value={cuentaDestino} onChange={(event) => setCuentaDestino(event.target.value)} disabled={!cuentasDestino.length} className="w-full rounded-lg border border-[#cdcfd2] bg-white px-3 py-2.5 text-sm text-[#04102d] outline-none transition focus:border-[#3985ff] focus:ring-2 focus:ring-[#3985ff]/15 disabled:bg-[#f0f1f2] disabled:text-[#898e95]">{cuentasDestino.length ? cuentasDestino.map((cuenta) => <option key={cuenta.codigo} value={cuenta.codigo}>{cuenta.codigo} — {cuenta.nombre}</option>) : <option>Cargando cuentas…</option>}</select></label>
                 <button type="button" onClick={() => void createMovementPreview()} disabled={movementLoading} className="rounded-lg bg-[#3985ff] px-5 py-2.5 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(57,133,255,.18)] transition hover:bg-[#017ce2] disabled:cursor-wait disabled:opacity-60">{movementLoading ? 'Consultando operación…' : 'Crear movimiento'}</button>
               </div>
               {movementJson != null && <div className="order-1 mt-4 overflow-hidden rounded-xl border border-[#dcdffc] bg-[#04102d]"><div className="border-b border-white/10 px-4 py-3 text-sm font-semibold text-white">JSON que se enviará a Finnegans</div><pre className="max-h-96 overflow-auto p-4 text-xs leading-5 text-[#b9e6ff]">{JSON.stringify(movementJson, null, 2)}</pre></div>}
