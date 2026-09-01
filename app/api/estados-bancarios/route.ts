@@ -43,10 +43,14 @@ export async function GET() {
     if (!Array.isArray(rows)) throw new Error('La API devolvió un formato inesperado.');
     const estados = rows
       .filter((item) => (item?.activo ?? item?.Activo) !== false)
-      .map((item) => ({
-        codigo: String(item.codigo ?? item.Codigo ?? ''),
-        nombre: String(item.nombre ?? item.Nombre ?? ''),
-      }))
+      .map((item) => {
+        const nombre = String(item.nombre ?? item.Nombre ?? '').trim();
+        return {
+          estadoId: String(item.estadoId ?? item.EstadoID ?? '').trim(),
+          codigo: String(item.codigo ?? item.Codigo ?? nombre).trim(),
+          nombre,
+        };
+      })
       .filter((item) => item.codigo && item.nombre);
     estados.sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
     return NextResponse.json({ estados });
