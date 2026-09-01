@@ -89,8 +89,9 @@ async function loadCheques(fechaHasta: string, tipoCheque: string, estado: strin
     const reportBaseUrl = (process.env.FINNEGANS_REPORT_BASE_URL ?? 'https://api.finneg.com/api').replace(/\/$/, '');
     const response = await fetch(`${reportBaseUrl}/reports/ApiSituacionCheques?${params}`, { cache: 'no-store' });
     if (!response.ok) throw new Error(`No se pudo consultar Situación de Cheques (${response.status}).`);
-    const result = await response.json();
-    const rows = Array.isArray(result) ? result : result?.data ?? result?.rows;
+    const result = await response.json() as unknown;
+    const resultObject = result && typeof result === 'object' ? result as { data?: unknown; rows?: unknown } : {};
+    const rows = Array.isArray(result) ? result : resultObject.data ?? resultObject.rows;
     if (!Array.isArray(rows)) throw new Error('La API devolvió un formato inesperado.');
     entry.loadedAt = Date.now();
     return rows as ApiCheque[];

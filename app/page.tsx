@@ -10,7 +10,12 @@ type OperacionBancaria = { codigo: string; nombre: string; estadoOrigen: string 
 type CuentaDestino = { codigo: string; nombre: string };
 type EmpresaSucursal = { codigo: string; nombre: string };
 type AsientoPreview = { tipoDocumento: string; operacion: string; operacionId: string; empresaId: string; estadoOrigen: string; estadoDestino: string; cuentaDestino: string; cuentaDestinoId: string; documentos: Array<{ documentoFisicoId: string; referencia: string; importe: Cell; cuentaOrigen: string; fechaVencimiento: string | null }> };
+type ApiError = { error?: string };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
+
+async function readJson<T>(response: Response) {
+  return await response.json() as T & ApiError;
+}
 
 function todayInBuenosAires() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
@@ -74,7 +79,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
-      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then(async (response) => { const body = await readJson<{ estados: EstadoBancario[] }>(response); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => {
         setEstadosBancarios(body.estados);
         if (body.estados.length && !body.estados.some((item: EstadoBancario) => item.codigo === estadoBancario)) {
@@ -84,21 +89,21 @@ export default function Home() {
       })
       .catch(() => setError('No se pudieron cargar los estados bancarios.'));
     fetch('/api/operaciones-bancarias')
-      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then(async (response) => { const body = await readJson<{ operaciones: OperacionBancaria[] }>(response); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => {
         setOperacionesBancarias(body.operaciones);
         if (body.operaciones.length) setOperacionBancaria(body.operaciones[0].codigo);
       })
       .catch(() => setError('No se pudieron cargar las operaciones bancarias.'));
     fetch('/api/cuentas')
-      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then(async (response) => { const body = await readJson<{ cuentas: CuentaDestino[] }>(response); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => {
         setCuentasDestino(body.cuentas);
         if (body.cuentas.length) setCuentaDestino(body.cuentas[0].codigo);
       })
       .catch(() => setError('No se pudieron cargar las cuentas destino.'));
     fetch('/api/empresas-sucursales')
-      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then(async (response) => { const body = await readJson<{ empresasSucursales: EmpresaSucursal[] }>(response); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => setEmpresasSucursales(body.empresasSucursales))
       .catch(() => setError('No se pudieron cargar las empresas y sucursales.'));
   }, []);
@@ -109,7 +114,7 @@ export default function Home() {
     const params = new URLSearchParams({ fechaHasta, tipoCheque, estado: estadoBancario, cuentaContable, empresa });
     if (refreshCounter > 0) params.set('refresh', '1');
     fetch(`/api/situacion-cheques?${params}`)
-      .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error); return body; })
+      .then(async (response) => { const body = await readJson<{ count: number }>(response); if (!response.ok) throw new Error(body.error); return body; })
       .then((body) => { if (active) { setApiCount(body.count); setApiStatus('ready'); } })
       .catch(() => { if (active) setApiStatus('error'); });
     if (rows.length) void reconcile(rows, fechaHasta, tipoCheque, estadoBancario, cuentaContable, empresa);
@@ -123,7 +128,7 @@ export default function Home() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, estado: selectedStatus, cuentaContable: selectedAccount, empresa: selectedCompany, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
       });
-      const body = await response.json();
+      const body = await readJson<{ results: MatchResult[] }>(response);
       if (!response.ok) throw new Error(body.error);
       setMatchResults(body.results);
       setSelectedRows(new Set<number>(body.results.filter((item: MatchResult) => item.matched).map((item: MatchResult) => item.index)));
@@ -204,7 +209,7 @@ export default function Home() {
     setMovementLoading(true);
     try {
       const response = await fetch(`/api/operaciones-bancarias?codigo=${encodeURIComponent(selectedOperation.codigo)}`, { cache: 'no-store' });
-      const body = await response.json();
+      const body = await readJson<{ operacion: OperacionBancaria }>(response);
       if (!response.ok) throw new Error(body.error);
       const operation: OperacionBancaria = body.operacion;
       setOperacionesBancarias((current) => current.map((item) => item.codigo === operation.codigo ? operation : item));
@@ -236,7 +241,7 @@ export default function Home() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...preview, fecha: todayInBuenosAires(), descripcion: `${preview.operacion} - Conciliación Excel`, previewOnly: true }),
       });
-      const previewBody = await previewResponse.json();
+      const previewBody = await readJson<{ payload: unknown }>(previewResponse);
       if (!previewResponse.ok) throw new Error(previewBody.error);
       setAsientoPreview(preview);
       setMovementJson(previewBody.payload);
@@ -258,7 +263,7 @@ export default function Home() {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ ...asientoPreview, fecha: todayInBuenosAires(), descripcion: `${asientoPreview.operacion} - Conciliación Excel`, documentos: asientoPreview.documentos }),
       });
-      const body = await response.json();
+      const body = await readJson<{ result?: Record<string, unknown> }>(response);
       receivedResponse = true;
       setEndpointResponse(body);
       setEndpointResponseOk(response.ok);

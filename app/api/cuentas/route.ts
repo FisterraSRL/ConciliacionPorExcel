@@ -40,8 +40,9 @@ export async function GET() {
     }
     if (!response) throw new Error('No se pudo iniciar la consulta de cuentas.');
     if (!response.ok) throw new Error(`No se pudieron consultar las cuentas (${response.status}).`);
-    const result = await response.json();
-    const rows = Array.isArray(result) ? result : result?.data ?? result?.rows;
+    const result = await response.json() as unknown;
+    const resultObject = result && typeof result === 'object' ? result as { data?: unknown; rows?: unknown } : {};
+    const rows = Array.isArray(result) ? result : resultObject.data ?? resultObject.rows;
     if (!Array.isArray(rows)) throw new Error('La API devolvió un formato inesperado.');
     const cuentas = rows
       .filter((item) => (item?.activo ?? item?.Activo) !== false)
