@@ -80,7 +80,7 @@ button { cursor: pointer; }
 .finnegans-filters label { border-radius: 5px; background: #fafafa; padding: 8px 10px; }
 .finnegans-filters label > span { margin-bottom: 4px; color: #8a9199; font-size: 11px; font-weight: 400; }
 .finnegans-filters input,.finnegans-filters select { border: 0 !important; background: transparent !important; padding: 2px 0 !important; font-size: 13px !important; box-shadow: none !important; }
-.finnegans-filters button { border-radius: 2px !important; box-shadow: none !important; }
+.finnegans-filters button { border-radius: 8px !important; box-shadow: none !important; }
 
 .finnegans-upload,.finnegans-grid {
   border-radius: 0 !important;
@@ -88,7 +88,7 @@ button { cursor: pointer; }
 }
 .finnegans-upload { border-color: #d7dadd !important; }
 .finnegans-upload > div { min-height: 290px; border-radius: 2px !important; background: #fbfbfb !important; }
-.finnegans-upload button,.finnegans-grid button { border-radius: 2px !important; box-shadow: none !important; }
+.finnegans-upload button,.finnegans-grid button { border-radius: 8px !important; box-shadow: none !important; }
 
 .finnegans-stats > div {
   border-radius: 2px !important;
