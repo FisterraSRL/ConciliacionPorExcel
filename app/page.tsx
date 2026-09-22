@@ -52,6 +52,14 @@ function accountNameKey(value: unknown) {
     .toLocaleLowerCase('es');
 }
 
+function accountDisplayName(accounts: CuentaDestino[], value: unknown) {
+  const accountValue = String(value ?? '').trim();
+  if (!accountValue) return '—';
+  return accounts.find((account) =>
+    account.codigo === accountValue || accountNameKey(account.nombre) === accountNameKey(accountValue)
+  )?.nombre ?? accountValue;
+}
+
 function SearchableSelect({ label, value, options, onChange, placeholder, emptyLabel, disabled = false, dropUp = false }: SearchableSelectProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -181,16 +189,7 @@ export default function Home() {
 
   useEffect(() => {
     if (refreshCounter === 0) return;
-    let active = true;
-    setApiStatus('loading');
-    const params = new URLSearchParams({ fechaHasta, tipoCheque, estado: estadoBancario, cuentaContable, empresa });
-    if (refreshCounter > 0) params.set('refresh', '1');
-    fetch(`/api/situacion-cheques?${params}`)
-      .then(async (response) => { const body = await readJson<{ count: number }>(response); if (!response.ok) throw new Error(body.error); return body; })
-      .then((body) => { if (active) { setApiCount(body.count); setApiStatus('ready'); } })
-      .catch(() => { if (active) setApiStatus('error'); });
-    if (rows.length) void reconcile(rows, fechaHasta, tipoCheque, estadoBancario, cuentaContable, empresa);
-    return () => { active = false; };
+    void reconcile(rows, fechaHasta, tipoCheque, estadoBancario, cuentaContable, empresa, true);
   }, [refreshCounter]);
 
   function resetMovementCreation(clearForm = false) {
@@ -218,19 +217,22 @@ export default function Home() {
     setRefreshCounter((value) => value + 1);
   }
 
-  async function reconcile(parsedRows: Row[], selectedDate = fechaHasta, selectedType = tipoCheque, selectedStatus = estadoBancario, selectedAccount = cuentaContable, selectedCompany = empresa) {
+  async function reconcile(parsedRows: Row[], selectedDate = fechaHasta, selectedType = tipoCheque, selectedStatus = estadoBancario, selectedAccount = cuentaContable, selectedCompany = empresa, forceRefresh = false) {
+    if (forceRefresh) setApiStatus('loading');
     setMatching(true); setMatchResults([]);
     try {
       const response = await fetch('/api/situacion-cheques', {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, estado: selectedStatus, cuentaContable: selectedAccount, empresa: selectedCompany, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
+        method: 'POST', headers: { 'content-type': 'application/json', 'cache-control': 'no-cache' }, cache: 'no-store',
+        body: JSON.stringify({ fechaHasta: selectedDate, tipoCheque: selectedType, estado: selectedStatus, cuentaContable: selectedAccount, empresa: selectedCompany, refresh: forceRefresh, rows: parsedRows.map((row, index) => ({ index, referencia: row.Referencia, importe: row.Importe })) }),
       });
-      const body = await readJson<{ results: MatchResult[] }>(response);
+      const body = await readJson<{ results: MatchResult[]; count: number }>(response);
       if (!response.ok) throw new Error(body.error);
       setMatchResults(body.results);
       setSelectedRows(new Set<number>(body.results.filter((item: MatchResult) => item.matched).map((item: MatchResult) => item.index)));
+      setApiCount(body.count);
       setApiStatus('ready');
     } catch (cause) {
+      setApiStatus('error');
       setError(cause instanceof Error ? cause.message : 'No se pudo conciliar con Finnegans.');
     } finally { setMatching(false); }
   }
@@ -371,7 +373,9 @@ export default function Home() {
       setEndpointResponseOk(response.ok);
       if (!response.ok) throw new Error(body.error);
       const transactionId = body.result?.TransaccionID ?? body.result?.transaccionID ?? body.result?.id;
-      setMovementSuccess(transactionId ? `Movimiento creado correctamente. Transacción: ${transactionId}.` : 'Movimiento creado correctamente en Finnegans.');
+      const successMessage = transactionId ? `Movimiento creado correctamente. Transacción: ${transactionId}.` : 'Movimiento creado correctamente en Finnegans.';
+      window.alert(successMessage);
+      window.location.reload();
     } catch (cause) {
       if (!receivedResponse) { setEndpointResponse({ error: cause instanceof Error ? cause.message : 'Error desconocido.' }); setEndpointResponseOk(false); }
       setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear el movimiento en Finnegans.');
@@ -433,7 +437,7 @@ export default function Home() {
               {movementSuccess && <div role="status" className="order-3 mt-4 rounded-lg border border-[#b8e8d5] bg-[#ebfcf7] px-4 py-3 text-sm font-semibold text-[#006b33]">{movementSuccess}</div>}
               {endpointResponse != null && <details className={`order-4 mt-4 rounded-lg border px-4 py-3 ${endpointResponseOk ? 'border-[#b8e8d5] bg-[#ebfcf7]' : 'border-[#efc7c3] bg-[#fff5f4]'}`}><summary className={`cursor-pointer text-xs font-semibold underline decoration-current/40 underline-offset-2 ${endpointResponseOk ? 'text-[#006b33]' : 'text-[#a83c34]'}`}>{endpointResponseOk ? 'Ver respuesta de Finnegans' : 'Ver error devuelto por Finnegans'}</summary><pre className="mt-3 max-h-80 overflow-auto border-t border-current/10 pt-3 text-xs leading-5 text-[#1b2432]">{JSON.stringify(endpointResponse, null, 2)}</pre></details>}
               {movementMessage && <div role="alert" className="mt-4 rounded-lg border border-[#efc7c3] bg-[#fff5f4] px-4 py-3 text-sm text-[#a83c34]">{movementMessage}</div>}
-              {asientoPreview && <div className="mt-5 overflow-hidden rounded-xl border border-[#dcdffc] bg-white"><div className="border-b border-[#dcdffc] bg-[#f0effa] px-4 py-3"><p className="text-sm font-semibold text-[#04102d]">Vista previa · MovimientoFondo</p><p className="mt-1 text-xs text-[#49505b]">{asientoPreview.operacion} · {asientoPreview.estadoOrigen} → {asientoPreview.estadoDestino}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b border-[#e1e2e4] text-left text-[11px] uppercase tracking-wider text-[#898e95]"><th className="px-4 py-3">documentofisicoID</th><th className="px-4 py-3">Referencia</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Debe</th><th className="px-4 py-3">Haber</th><th className="px-4 py-3">Estado destino</th></tr></thead><tbody>{asientoPreview.documentos.flatMap((item) => [<tr key={`${item.documentoFisicoId}-origen`} className="border-b border-[#eff0f1]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{item.cuentaOrigen}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3">{asientoPreview.estadoOrigen}</td></tr>, <tr key={`${item.documentoFisicoId}-destino`} className="border-b border-[#eff0f1] bg-[#fbfcff]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{asientoPreview.cuentaDestino}</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 font-medium text-[#006b33]">{asientoPreview.estadoDestino}</td></tr>])}</tbody></table></div></div>}
+              {asientoPreview && <div className="mt-5 overflow-hidden rounded-xl border border-[#dcdffc] bg-white"><div className="border-b border-[#dcdffc] bg-[#f0effa] px-4 py-3"><p className="text-sm font-semibold text-[#04102d]">Vista previa · MovimientoFondo</p><p className="mt-1 text-xs text-[#49505b]">{asientoPreview.operacion} · {asientoPreview.estadoOrigen} → {asientoPreview.estadoDestino}</p></div><div className="overflow-x-auto"><table className="w-full min-w-[820px] text-sm"><thead><tr className="border-b border-[#e1e2e4] text-left text-[11px] uppercase tracking-wider text-[#898e95]"><th className="px-4 py-3">documentofisicoID</th><th className="px-4 py-3">Referencia</th><th className="px-4 py-3">Cuenta</th><th className="px-4 py-3">Debe</th><th className="px-4 py-3">Haber</th><th className="px-4 py-3">Estado destino</th></tr></thead><tbody>{asientoPreview.documentos.flatMap((item) => [<tr key={`${item.documentoFisicoId}-origen`} className="border-b border-[#eff0f1]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{accountDisplayName(cuentasDestino, item.cuentaOrigen)}</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3">{asientoPreview.estadoOrigen}</td></tr>, <tr key={`${item.documentoFisicoId}-destino`} className="border-b border-[#eff0f1] bg-[#fbfcff]"><td className="px-4 py-3 font-mono text-xs">{item.documentoFisicoId}</td><td className="px-4 py-3">{item.referencia}</td><td className="px-4 py-3">{accountDisplayName(cuentasDestino, asientoPreview.cuentaDestinoId)}</td><td className="px-4 py-3 text-right">—</td><td className="px-4 py-3 text-right font-medium">{formatMoney(item.importe)}</td><td className="px-4 py-3 font-medium text-[#006b33]">{asientoPreview.estadoDestino}</td></tr>])}</tbody></table></div></div>}
             </div>
           </section>
         </>}

@@ -3,6 +3,8 @@ import { NextRequest, NextResponse } from 'next/server';
 type ApiCheque = Record<string, unknown>;
 type ExcelRow = { referencia: unknown; importe: unknown; index: number };
 
+export const dynamic = 'force-dynamic';
+
 const chequeCache = new Map<string, { promise: Promise<ApiCheque[]>; loadedAt: number }>();
 const CACHE_TTL_MS = 15 * 60 * 1000;
 
@@ -114,10 +116,10 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const body = await request.json() as { rows?: ExcelRow[]; fechaHasta?: string; tipoCheque?: string; estado?: string; cuentaContable?: string; empresa?: string };
+    const body = await request.json() as { rows?: ExcelRow[]; fechaHasta?: string; tipoCheque?: string; estado?: string; cuentaContable?: string; empresa?: string; refresh?: boolean };
     if (!Array.isArray(body.rows)) return NextResponse.json({ error: 'No se recibieron registros.' }, { status: 400 });
     const filters = validateFilters(body.fechaHasta, body.tipoCheque, body.estado, body.cuentaContable, body.empresa);
-    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable, filters.empresa);
+    const cheques = await loadCheques(filters.fechaHasta, filters.tipoCheque, filters.estado, filters.cuentaContable, filters.empresa, body.refresh === true);
     const index = new Map<string, ApiCheque>();
     for (const cheque of cheques) {
       const key = matchKey(cheque.NUMERO, cheque.IMPORTEMONTRANSACCION);
@@ -142,7 +144,7 @@ export async function POST(request: NextRequest) {
         } : null,
       };
     });
-    return NextResponse.json({ results, matched: results.filter((item) => item.matched).length, total: results.length, filters });
+    return NextResponse.json({ results, matched: results.filter((item) => item.matched).length, total: results.length, count: cheques.length, refreshedAt: new Date().toISOString(), filters }, { headers: { 'Cache-Control': 'no-store, no-cache, must-revalidate' } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : 'Error al conciliar los registros.' }, { status: 502 });
   }
