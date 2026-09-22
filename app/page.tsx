@@ -21,6 +21,7 @@ type SearchableSelectProps = {
   disabled?: boolean;
   dropUp?: boolean;
 };
+type MovementModal = { type: 'confirm' } | { type: 'success'; message: string };
 type AsientoPreview = { tipoDocumento: string; fecha: string; operacion: string; operacionId: string; empresaId: string; estadoOrigen: string; estadoDestino: string; cuentaDestino: string; cuentaDestinoId: string; documentos: Array<{ documentoFisicoId: string; referencia: string; importe: Cell; cuentaOrigen: string; fechaVencimiento: string | null }> };
 type ApiError = { error?: string };
 const expectedColumns = ['Descripcion', 'Fecha', 'Referencia', 'Importe'];
@@ -156,6 +157,7 @@ export default function Home() {
   const [movementJson, setMovementJson] = useState<unknown>(null);
   const [endpointResponse, setEndpointResponse] = useState<unknown>(null);
   const [endpointResponseOk, setEndpointResponseOk] = useState<boolean | null>(null);
+  const [movementModal, setMovementModal] = useState<MovementModal | null>(null);
 
   useEffect(() => {
     fetch('/api/estados-bancarios')
@@ -358,7 +360,7 @@ export default function Home() {
 
   async function submitMovement() {
     if (!asientoPreview || movementSending) return;
-    if (!window.confirm(`Se creará un movimiento ${asientoPreview.tipoDocumento} con ${asientoPreview.documentos.length} documentos en Finnegans. ¿Confirmar?`)) return;
+    setMovementModal(null);
     setMovementSending(true); setMovementMessage(''); setMovementSuccess('');
     setEndpointResponse(null); setEndpointResponseOk(null);
     let receivedResponse = false;
@@ -374,8 +376,7 @@ export default function Home() {
       if (!response.ok) throw new Error(body.error);
       const transactionId = body.result?.TransaccionID ?? body.result?.transaccionID ?? body.result?.id;
       const successMessage = transactionId ? `Movimiento creado correctamente. Transacción: ${transactionId}.` : 'Movimiento creado correctamente en Finnegans.';
-      window.alert(successMessage);
-      window.location.reload();
+      setMovementModal({ type: 'success', message: successMessage });
     } catch (cause) {
       if (!receivedResponse) { setEndpointResponse({ error: cause instanceof Error ? cause.message : 'Error desconocido.' }); setEndpointResponseOk(false); }
       setMovementMessage(cause instanceof Error ? cause.message : 'No se pudo crear el movimiento en Finnegans.');
@@ -433,7 +434,7 @@ export default function Home() {
                 <button type="button" onClick={() => void createMovementPreview()} disabled={movementLoading} className="movement-create-button whitespace-nowrap rounded-lg bg-[#3fc58b] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2eae76] disabled:cursor-wait disabled:opacity-60">{movementLoading ? 'Consultando operación…' : 'Crear movimiento'}</button>
               </div>
               {movementJson != null && <div className="order-1 mt-3"><a href={`data:application/json;charset=utf-8,${encodeURIComponent(JSON.stringify(movementJson, null, 2))}`} download={`movimiento-finnegans-${asientoPreview?.fecha ?? fechaContabilizacion}.json`} className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#2675df] underline decoration-[#2675df]/40 underline-offset-2 transition hover:text-[#0847ae]" aria-label="Descargar JSON que se enviará a Finnegans"><span aria-hidden="true">↓</span> Descargar JSON para revisión</a></div>}
-              {asientoPreview && movementJson != null && <div className="order-2 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#49505b]">Esta acción realizará un POST real en Finnegans.</p><button type="button" onClick={() => void submitMovement()} disabled={movementSending} className="rounded-lg bg-[#3fc58b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2eae76] disabled:cursor-wait disabled:opacity-60">{movementSending ? 'Enviando a Finnegans…' : 'Confirmar y enviar a Finnegans'}</button></div>}
+              {asientoPreview && movementJson != null && <div className="order-2 mt-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between"><p className="text-xs text-[#49505b]">Esta acción realizará un POST real en Finnegans.</p><button type="button" onClick={() => setMovementModal({ type: 'confirm' })} disabled={movementSending} className="rounded-lg bg-[#3fc58b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2eae76] disabled:cursor-wait disabled:opacity-60">{movementSending ? 'Enviando a Finnegans…' : 'Confirmar y enviar a Finnegans'}</button></div>}
               {movementSuccess && <div role="status" className="order-3 mt-4 rounded-lg border border-[#b8e8d5] bg-[#ebfcf7] px-4 py-3 text-sm font-semibold text-[#006b33]">{movementSuccess}</div>}
               {endpointResponse != null && <details className={`order-4 mt-4 rounded-lg border px-4 py-3 ${endpointResponseOk ? 'border-[#b8e8d5] bg-[#ebfcf7]' : 'border-[#efc7c3] bg-[#fff5f4]'}`}><summary className={`cursor-pointer text-xs font-semibold underline decoration-current/40 underline-offset-2 ${endpointResponseOk ? 'text-[#006b33]' : 'text-[#a83c34]'}`}>{endpointResponseOk ? 'Ver respuesta de Finnegans' : 'Ver error devuelto por Finnegans'}</summary><pre className="mt-3 max-h-80 overflow-auto border-t border-current/10 pt-3 text-xs leading-5 text-[#1b2432]">{JSON.stringify(endpointResponse, null, 2)}</pre></details>}
               {movementMessage && <div role="alert" className="mt-4 rounded-lg border border-[#efc7c3] bg-[#fff5f4] px-4 py-3 text-sm text-[#a83c34]">{movementMessage}</div>}
@@ -442,6 +443,22 @@ export default function Home() {
           </section>
         </>}
       </div>
+      {movementModal && <div className="fixed inset-0 z-[200] grid place-items-center bg-[#04102d]/55 px-4 py-8 backdrop-blur-[2px]" role="presentation">
+        <section role="dialog" aria-modal="true" aria-labelledby="movement-modal-title" aria-describedby="movement-modal-description" className="w-full max-w-md overflow-hidden rounded-xl border border-[#cfd8e3] bg-white shadow-[0_24px_70px_rgba(4,16,45,.32)]">
+          <div className="h-1 bg-gradient-to-r from-[#168df5] via-[#00bdf2] to-[#3fc58b]"/>
+          <div className="p-6 sm:p-7">
+            <div className={`mb-5 grid h-12 w-12 place-items-center rounded-full text-2xl font-semibold ${movementModal.type === 'success' ? 'bg-[#ebfcf7] text-[#169568]' : 'bg-[#eef5ff] text-[#168df5]'}`} aria-hidden="true">{movementModal.type === 'success' ? '✓' : '!'}</div>
+            <h2 id="movement-modal-title" className="text-xl font-semibold text-[#04102d]">{movementModal.type === 'success' ? 'Movimiento creado' : 'Confirmar envío a Finnegans'}</h2>
+            <p id="movement-modal-description" className="mt-2 text-sm leading-6 text-[#5f6976]">{movementModal.type === 'success' ? movementModal.message : <>Se creará un movimiento <strong className="text-[#04102d]">{asientoPreview?.tipoDocumento}</strong> con <strong className="text-[#04102d]">{asientoPreview?.documentos.length}</strong> documentos. Esta acción registrará el movimiento en Finnegans.</>}</p>
+            {movementModal.type === 'confirm' ? <div className="mt-7 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <button type="button" onClick={() => setMovementModal(null)} className="rounded-lg border border-[#c9d0d7] bg-white px-5 py-2.5 text-sm font-semibold text-[#49505b] transition hover:border-[#3985ff] hover:bg-[#eef5ff]">Cancelar</button>
+              <button type="button" autoFocus onClick={() => void submitMovement()} className="rounded-lg bg-[#3fc58b] px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-[#2eae76]">Confirmar y enviar</button>
+            </div> : <div className="mt-7 flex justify-end">
+              <button type="button" autoFocus onClick={() => window.location.reload()} className="rounded-lg bg-[#168df5] px-6 py-2.5 text-sm font-semibold text-white transition hover:bg-[#0878d6]">Aceptar y finalizar</button>
+            </div>}
+          </div>
+        </section>
+      </div>}
     </main>
   );
 }
