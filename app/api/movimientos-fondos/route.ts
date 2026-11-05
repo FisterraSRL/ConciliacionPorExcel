@@ -47,6 +47,11 @@ function normalizeDate(value: unknown) {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 }
 
+function isPostCommitInvalidJsonError(message: string) {
+  return /unexpected token/i.test(message)
+    && /is not valid json/i.test(message);
+}
+
 async function requestToken() {
   const baseUrl = requiredEnv('FINNEGANS_API_BASE_URL').replace(/\/$/, '');
   const params = new URLSearchParams({
@@ -131,6 +136,18 @@ export async function POST(request: NextRequest) {
     try { result = responseText ? JSON.parse(responseText) : null; } catch { /* Finnegans may return plain text. */ }
     if (!response.ok) {
       const message = typeof result === 'object' && result && 'error' in result ? String((result as { error: unknown }).error) : responseText;
+      // MovimientoFondo can commit the transaction and then fail while serializing its
+      // response. Treat only this known post-commit response defect as successful so
+      // the operator is not encouraged to retry and create a duplicate movement.
+      if (isPostCommitInvalidJsonError(message)) {
+        return NextResponse.json({
+          success: true,
+          result: {
+            warning: 'Finnegans creó el movimiento, pero devolvió una respuesta con formato inválido.',
+            upstreamStatus: response.status,
+          },
+        });
+      }
       return NextResponse.json({ error: message || `Finnegans rechazó el movimiento (${response.status}).` }, { status: 502 });
     }
     return NextResponse.json({ success: true, result });
